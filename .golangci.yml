@@ -1,0 +1,91 @@
+# golangci-lint configuration
+run:
+  timeout: 5m
+  issues-exit-code: 1
+  tests: true
+  skip-dirs:
+    - build
+    - vendor
+    - web/node_modules
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+  
+  govet:
+    check-shadowing: true
+  
+  gocyclo:
+    min-complexity: 15
+  
+  gofmt:
+    simplify: true
+  
+  goimports:
+    local-prefixes: github.com/snowfort/control
+  
+  golint:
+    min-confidence: 0.8
+  
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+  
+  misspell:
+    locale: US
+  
+  lll:
+    line-length: 120
+  
+  gocritic:
+    enabled-tags:
+      - performance
+      - style
+      - experimental
+    disabled-checks:
+      - wrapperFunc
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+    - gocyclo
+    - gofmt
+    - goimports
+    - goconst
+    - misspell
+    - lll
+    - gocritic
+    - gosec
+  
+  disable:
+    - maligned
+    - prealloc
+
+issues:
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - gosec
+    
+    # Exclude known linters from generated files
+    - path: ".*\\.pb\\.go"
+      linters:
+        - gocyclo
+        - errcheck
+        - gosimple
+
+  # Maximum issues count per one linter
+  max-issues-per-linter: 0
+  
+  # Maximum count of issues with the same text
+  max-same-issues: 0
