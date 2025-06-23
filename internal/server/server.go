@@ -3,7 +3,9 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -39,6 +41,9 @@ func (s *Server) Start(addr string) error {
 
 	// Static files (embedded frontend will go here)
 	r.HandleFunc("/", s.handleIndex).Methods("GET")
+	r.HandleFunc("/favicon.ico", s.handleFavicon).Methods("GET")
+	r.HandleFunc("/favicon-16x16.png", s.handleFavicon16).Methods("GET")
+	r.HandleFunc("/favicon-32x32.png", s.handleFavicon32).Methods("GET")
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./web/build/static/"))))
 
 	fmt.Printf("Server starting on %s\n", addr)
@@ -207,6 +212,9 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Control Dashboard</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="shortcut icon" href="/favicon.ico">
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #0d1117; color: #c9d1d9; }
         .container { max-width: 1200px; margin: 0 auto; }
@@ -300,4 +308,29 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html")
 	w.Write([]byte(html))
+}
+
+func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
+	s.serveFaviconFile(w, r, "web/public/favicon-32x32.png")
+}
+
+func (s *Server) handleFavicon16(w http.ResponseWriter, r *http.Request) {
+	s.serveFaviconFile(w, r, "web/public/favicon-16x16.png")
+}
+
+func (s *Server) handleFavicon32(w http.ResponseWriter, r *http.Request) {
+	s.serveFaviconFile(w, r, "web/public/favicon-32x32.png")
+}
+
+func (s *Server) serveFaviconFile(w http.ResponseWriter, r *http.Request, filepath string) {
+	file, err := os.Open(filepath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer file.Close()
+
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
+	io.Copy(w, file)
 }
