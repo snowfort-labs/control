@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -41,9 +42,9 @@ func (s *Server) Start(addr string) error {
 
 	// Static files (embedded frontend will go here)
 	r.HandleFunc("/", s.handleIndex).Methods("GET")
-	r.HandleFunc("/favicon.ico", s.handleFavicon).Methods("GET")
-	r.HandleFunc("/favicon-16x16.png", s.handleFavicon16).Methods("GET")
-	r.HandleFunc("/favicon-32x32.png", s.handleFavicon32).Methods("GET")
+	r.HandleFunc("/favicon.ico", s.handleFavicon).Methods("GET", "HEAD")
+	r.HandleFunc("/favicon-16x16.png", s.handleFavicon16).Methods("GET", "HEAD")
+	r.HandleFunc("/favicon-32x32.png", s.handleFavicon32).Methods("GET", "HEAD")
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./web/build/static/"))))
 
 	fmt.Printf("Server starting on %s\n", addr)
@@ -311,21 +312,42 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
-	s.serveFaviconFile(w, r, "web/public/favicon-32x32.png")
+	s.serveFaviconFile(w, r, s.findFaviconPath("favicon-32x32.png"))
 }
 
 func (s *Server) handleFavicon16(w http.ResponseWriter, r *http.Request) {
-	s.serveFaviconFile(w, r, "web/public/favicon-16x16.png")
+	s.serveFaviconFile(w, r, s.findFaviconPath("favicon-16x16.png"))
 }
 
 func (s *Server) handleFavicon32(w http.ResponseWriter, r *http.Request) {
-	s.serveFaviconFile(w, r, "web/public/favicon-32x32.png")
+	s.serveFaviconFile(w, r, s.findFaviconPath("favicon-32x32.png"))
+}
+
+func (s *Server) findFaviconPath(filename string) string {
+	// Try multiple possible locations in order of likelihood
+	possiblePaths := []string{
+		filepath.Join("web", "public", filename),                    // From control directory
+		filepath.Join("control", "web", "public", filename),        // From parent directory (like ../claims-management)
+		filepath.Join("..", "control", "web", "public", filename),  // From sibling directory
+		filepath.Join(".", "web", "public", filename),              // Current directory fallback
+	}
+	
+	for _, path := range possiblePaths {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	
+	// Fallback to relative path
+	return filepath.Join("web", "public", filename)
 }
 
 func (s *Server) serveFaviconFile(w http.ResponseWriter, r *http.Request, filepath string) {
 	file, err := os.Open(filepath)
 	if err != nil {
-		http.NotFound(w, r)
+		// If file not found, serve a simple placeholder
+		w.Header().Set("Content-Type", "image/png")
+		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 	defer file.Close()
