@@ -213,9 +213,9 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Control Dashboard</title>
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
-    <link rel="shortcut icon" href="/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png?v=2">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png?v=2">
+    <link rel="shortcut icon" href="/favicon.ico?v=2">
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #0d1117; color: #c9d1d9; }
         .container { max-width: 1200px; margin: 0 auto; }
@@ -312,7 +312,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
-	s.serveFaviconFile(w, r, s.findFaviconPath("favicon-32x32.png"))
+	s.serveFaviconFile(w, r, s.findFaviconPath("favicon.ico"))
 }
 
 func (s *Server) handleFavicon16(w http.ResponseWriter, r *http.Request) {
@@ -342,17 +342,23 @@ func (s *Server) findFaviconPath(filename string) string {
 	return filepath.Join("web", "public", filename)
 }
 
-func (s *Server) serveFaviconFile(w http.ResponseWriter, r *http.Request, filepath string) {
-	file, err := os.Open(filepath)
+func (s *Server) serveFaviconFile(w http.ResponseWriter, r *http.Request, filePath string) {
+	file, err := os.Open(filePath)
 	if err != nil {
 		// If file not found, serve a simple placeholder
-		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Content-Type", "image/x-icon")
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 	defer file.Close()
 
-	w.Header().Set("Content-Type", "image/png")
+	// Set appropriate content type based on file extension
+	contentType := "image/x-icon"
+	if filepath.Ext(filePath) == ".png" {
+		contentType = "image/png"
+	}
+	
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
 	io.Copy(w, file)
 }
