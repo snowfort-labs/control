@@ -10,9 +10,9 @@ import (
 
 	"github.com/pkg/browser"
 	"github.com/spf13/cobra"
-	"github.com/snowfort/control/internal/adapters"
-	"github.com/snowfort/control/internal/server"
-	"github.com/snowfort/control/internal/storage"
+	"github.com/snowfort-labs/control/internal/adapters"
+	"github.com/snowfort-labs/control/internal/server"
+	"github.com/snowfort-labs/control/internal/storage"
 )
 
 var ingestCmd = &cobra.Command{
@@ -189,7 +189,7 @@ var badgeCmd = &cobra.Command{
 			color = "orange"
 		}
 
-		badge := fmt.Sprintf("[![Stability](https://img.shields.io/badge/Stability-%d%%25-%s)](https://github.com/snowfort/control)", score, color)
+		badge := fmt.Sprintf("[![Stability](https://img.shields.io/badge/Stability-%d%%25-%s)](https://github.com/snowfort-labs/control)", score, color)
 		fmt.Println(badge)
 	},
 }

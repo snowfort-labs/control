@@ -115,7 +115,7 @@ jobs:
         formula-name: control
         formula-path: Formula/control.rb
         homebrew-tap: snowfort/homebrew-tap
-        download-url: https://github.com/snowfort/control/releases/download/{{ version }}/control-{{ version }}-darwin-amd64.tar.gz
+        download-url: https://github.com/snowfort-labs/control/releases/download/{{ version }}/control-{{ version }}-darwin-amd64.tar.gz
         commit-message: |
           {{formulaName}} {{version}}
           

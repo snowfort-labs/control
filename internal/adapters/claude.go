@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/snowfort/control/internal/storage"
+	"github.com/snowfort-labs/control/internal/storage"
 	_ "github.com/mattn/go-sqlite3"
 )
 

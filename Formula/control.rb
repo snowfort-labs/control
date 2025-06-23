@@ -1,25 +1,25 @@
 # Homebrew Formula for Control
 class Control < Formula
   desc "Self-hosted agent observability dashboard"
-  homepage "https://github.com/snowfort/control"
+  homepage "https://github.com/snowfort-labs/control"
   version "0.1.0"
   
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/snowfort/control/releases/download/v#{version}/control-v#{version}-darwin-arm64.tar.gz"
+      url "https://github.com/snowfort-labs/control/releases/download/v#{version}/control-v#{version}-darwin-arm64.tar.gz"
       sha256 "0000000000000000000000000000000000000000000000000000000000000000" # Will be updated by CI
     else
-      url "https://github.com/snowfort/control/releases/download/v#{version}/control-v#{version}-darwin-amd64.tar.gz"
+      url "https://github.com/snowfort-labs/control/releases/download/v#{version}/control-v#{version}-darwin-amd64.tar.gz"
       sha256 "0000000000000000000000000000000000000000000000000000000000000000" # Will be updated by CI
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/snowfort/control/releases/download/v#{version}/control-v#{version}-linux-arm64.tar.gz"
+      url "https://github.com/snowfort-labs/control/releases/download/v#{version}/control-v#{version}-linux-arm64.tar.gz"
       sha256 "0000000000000000000000000000000000000000000000000000000000000000" # Will be updated by CI
     else
-      url "https://github.com/snowfort/control/releases/download/v#{version}/control-v#{version}-linux-amd64.tar.gz"
+      url "https://github.com/snowfort-labs/control/releases/download/v#{version}/control-v#{version}-linux-amd64.tar.gz"
       sha256 "0000000000000000000000000000000000000000000000000000000000000000" # Will be updated by CI
     end
   end
