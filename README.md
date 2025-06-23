@@ -26,7 +26,7 @@ Control is a single-binary CLI that ingests agent traces (Claude Code + Git), st
 brew install control
 
 # Or download binary from releases
-curl -L https://github.com/snowfort/control/releases/latest/download/control-darwin-amd64 -o control
+curl -L https://github.com/snowfort-labs/control/releases/latest/download/control-darwin-amd64 -o control
 chmod +x control
 sudo mv control /usr/local/bin/
 ```
@@ -173,4 +173,4 @@ MIT License - see LICENSE file for details.
 
 ---
 
-🤖 Built with Claude Code • [Report Issues](https://github.com/snowfort/control/issues) • [Contribute](CONTRIBUTING.md)
+🤖 Built with Claude Code • [Report Issues](https://github.com/snowfort-labs/control/issues) • [Contribute](CONTRIBUTING.md)

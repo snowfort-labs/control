@@ -1,4 +1,4 @@
-module github.com/snowfort/control
+module github.com/snowfort-labs/control
 
 go 1.21
 

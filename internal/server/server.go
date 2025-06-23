@@ -9,7 +9,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/snowfort/control/internal/storage"
+	"github.com/snowfort-labs/control/internal/storage"
 )
 
 type Server struct {

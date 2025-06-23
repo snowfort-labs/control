@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/snowfort/control/internal/storage"
+	"github.com/snowfort-labs/control/internal/storage"
 )
 
 type Calculator struct {
