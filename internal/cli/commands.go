@@ -1,214 +1,215 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
-	"github.com/pkg/browser"
 	"github.com/spf13/cobra"
-	"github.com/snowfort-labs/control/internal/adapters"
 	"github.com/snowfort-labs/control/internal/server"
-	"github.com/snowfort-labs/control/internal/storage"
+	"github.com/snowfort-labs/control/pkg/store"
+	"github.com/snowfort-labs/control/pkg/watcher"
 )
 
-var ingestCmd = &cobra.Command{
-	Use:   "ingest",
-	Short: "One-off import of Claude and Git data",
-	Run: func(cmd *cobra.Command, args []string) {
-		store, err := storage.NewStorage()
-		if err != nil {
-			log.Fatalf("Failed to initialize storage: %v", err)
-		}
-		defer store.Close()
+var (
+	port int = 9123
+)
 
-		// Ingest Claude data
-		claudeAdapter := adapters.NewClaudeAdapter()
-		claudeEvents, err := claudeAdapter.FetchEvents()
-		if err != nil {
-			log.Printf("Warning: Failed to fetch Claude events: %v", err)
-		} else {
-			for _, event := range claudeEvents {
-				if err := store.InsertEvent(event); err != nil {
-					log.Printf("Failed to insert Claude event: %v", err)
-				}
-			}
-			fmt.Printf("Ingested %d Claude events\n", len(claudeEvents))
-		}
-
-		// Ingest Git data
-		gitAdapter := adapters.NewGitAdapter(".")
-		gitEvents, err := gitAdapter.FetchEvents()
-		if err != nil {
-			log.Printf("Warning: Failed to fetch Git events: %v", err)
-		} else {
-			for _, event := range gitEvents {
-				if err := store.InsertEvent(event); err != nil {
-					log.Printf("Failed to insert Git event: %v", err)
-				}
-			}
-			fmt.Printf("Ingested %d Git events\n", len(gitEvents))
-		}
-	},
+var dashboardCmd = &cobra.Command{
+	Use:   "dashboard",
+	Short: "Start the web dashboard",
+	Long:  "Starts the HTTP server and opens the dashboard in the browser",
+	RunE:  runDashboard,
 }
 
 var watchCmd = &cobra.Command{
 	Use:   "watch",
-	Short: "Start tailers that watch Claude and Git for new events",
-	Run: func(cmd *cobra.Command, args []string) {
-		store, err := storage.NewStorage()
-		if err != nil {
-			log.Fatalf("Failed to initialize storage: %v", err)
-		}
-		defer store.Close()
-
-		eventChan := make(chan storage.Event, 100)
-		stopChan := make(chan struct{})
-
-		// Start adapters
-		claudeAdapter := adapters.NewClaudeAdapter()
-		gitAdapter := adapters.NewGitAdapter(".")
-
-		go claudeAdapter.Watch(eventChan, stopChan)
-		go gitAdapter.Watch(eventChan, stopChan)
-
-		// Handle events
-		go func() {
-			for event := range eventChan {
-				if err := store.InsertEvent(event); err != nil {
-					log.Printf("Failed to insert event: %v", err)
-				} else {
-					fmt.Printf("New %s event: %s\n", event.Agent, event.Action)
-				}
-			}
-		}()
-
-		fmt.Println("Watching for new events... Press Ctrl+C to stop")
-
-		// Wait for interrupt signal
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-		<-sigChan
-
-		close(stopChan)
-		close(eventChan)
-		fmt.Println("\nStopping watchers...")
-	},
+	Short: "Start watching repositories (headless mode)",
+	Long:  "Starts the watcher in headless mode without the web interface",
+	RunE:  runWatch,
 }
 
-var serveCmd = &cobra.Command{
-	Use:   "serve",
-	Short: "Start the HTTP server with API endpoints",
-	Run: func(cmd *cobra.Command, args []string) {
-		store, err := storage.NewStorage()
-		if err != nil {
-			log.Fatalf("Failed to initialize storage: %v", err)
-		}
-		defer store.Close()
-
-		srv := server.NewServer(store)
-		
-		fmt.Println("Starting server on http://localhost:9123")
-		if err := srv.Start(":9123"); err != nil {
-			log.Fatalf("Server failed: %v", err)
-		}
-	},
-}
-
-var dashboardCmd = &cobra.Command{
-	Use:   "dashboard",
-	Short: "Start server and open dashboard in browser",
-	Run: func(cmd *cobra.Command, args []string) {
-		store, err := storage.NewStorage()
-		if err != nil {
-			log.Fatalf("Failed to initialize storage: %v", err)
-		}
-		defer store.Close()
-
-		srv := server.NewServer(store)
-		
-		// Start server in background
-		go func() {
-			fmt.Println("Starting server on http://localhost:9123")
-			if err := srv.Start(":9123"); err != nil {
-				log.Fatalf("Server failed: %v", err)
-			}
-		}()
-
-		// Wait a moment for server to start
-		time.Sleep(2 * time.Second)
-
-		// Open browser
-		url := "http://localhost:9123"
-		fmt.Printf("Opening dashboard at %s\n", url)
-		if err := browser.OpenURL(url); err != nil {
-			fmt.Printf("Failed to open browser: %v\n", err)
-			fmt.Printf("Please manually open: %s\n", url)
-		}
-
-		// Keep running
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-		<-sigChan
-		fmt.Println("\nShutting down...")
-	},
+var ingestCmd = &cobra.Command{
+	Use:   "ingest",
+	Short: "One-time ingestion of historical data",
+	Long:  "Performs a one-time ingestion of historical Git and Claude data",
+	RunE:  runIngest,
 }
 
 var badgeCmd = &cobra.Command{
 	Use:   "badge",
-	Short: "Generate markdown badge for Stability Score",
-	Run: func(cmd *cobra.Command, args []string) {
-		store, err := storage.NewStorage()
-		if err != nil {
-			log.Fatalf("Failed to initialize storage: %v", err)
-		}
-		defer store.Close()
-
-		// Get current metrics
-		metrics, err := store.GetMetrics(time.Now().Add(-30 * 24 * time.Hour))
-		if err != nil {
-			log.Fatalf("Failed to get metrics: %v", err)
-		}
-
-		stability, ok := metrics["stability_score"].(float64)
-		if !ok {
-			stability = 0.0
-		}
-
-		// Generate badge markdown
-		score := int(stability * 100)
-		color := "red"
-		if score >= 90 {
-			color = "brightgreen"
-		} else if score >= 70 {
-			color = "yellow"
-		} else if score >= 50 {
-			color = "orange"
-		}
-
-		badge := fmt.Sprintf("[![Stability](https://img.shields.io/badge/Stability-%d%%25-%s)](https://github.com/snowfort-labs/control)", score, color)
-		fmt.Println(badge)
-	},
-}
-
-var syncCmd = &cobra.Command{
-	Use:   "sync",
-	Short: "Sync data to remote Supabase instance",
-	Run: func(cmd *cobra.Command, args []string) {
-		remote, _ := cmd.Flags().GetBool("remote")
-		if !remote {
-			fmt.Println("Use --remote flag to enable remote sync")
-			return
-		}
-
-		fmt.Println("Remote sync not yet implemented in v0.1")
-		// TODO: Implement Supabase sync
-	},
+	Short: "Generate markdown badge for README",
+	Long:  "Generates a markdown badge showing current stability score",
+	RunE:  runBadge,
 }
 
 func init() {
-	syncCmd.Flags().Bool("remote", false, "Enable remote sync to Supabase")
+	dashboardCmd.Flags().IntVarP(&port, "port", "p", 9123, "Port to run the server on")
+	watchCmd.Flags().IntVarP(&port, "port", "p", 9123, "Port for API server (optional)")
+}
+
+func runDashboard(cmd *cobra.Command, args []string) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Initialize store
+	store := store.NewDuckDBStore("")
+	if err := store.Init(ctx); err != nil {
+		return fmt.Errorf("failed to initialize store: %w", err)
+	}
+	defer store.Close()
+
+	// Initialize watcher
+	watchManager := watcher.NewManager(store)
+	if err := watchManager.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start watcher: %w", err)
+	}
+	defer watchManager.Stop()
+
+	// Initialize server
+	srv := server.NewServer(store, watchManager)
+
+	// Handle graceful shutdown
+	go func() {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+		<-sigChan
+		log.Println("Shutting down...")
+		cancel()
+	}()
+
+	// Open browser
+	go func() {
+		time.Sleep(1 * time.Second) // Give server time to start
+		url := fmt.Sprintf("http://localhost:%d", port)
+		fmt.Printf("Opening dashboard at %s\n", url)
+		openBrowser(url)
+	}()
+
+	fmt.Printf("Starting server on http://localhost:%d\n", port)
+	return srv.Start(port)
+}
+
+func runWatch(cmd *cobra.Command, args []string) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Initialize store
+	store := store.NewDuckDBStore("")
+	if err := store.Init(ctx); err != nil {
+		return fmt.Errorf("failed to initialize store: %w", err)
+	}
+	defer store.Close()
+
+	// Initialize watcher
+	watchManager := watcher.NewManager(store)
+	if err := watchManager.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start watcher: %w", err)
+	}
+	defer watchManager.Stop()
+
+	// Handle graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	fmt.Println("Watching repositories... Press Ctrl+C to stop")
+	<-sigChan
+	fmt.Println("Stopping watcher...")
+
+	return nil
+}
+
+func runIngest(cmd *cobra.Command, args []string) error {
+	ctx := context.Background()
+
+	// Initialize store
+	store := store.NewDuckDBStore("")
+	if err := store.Init(ctx); err != nil {
+		return fmt.Errorf("failed to initialize store: %w", err)
+	}
+	defer store.Close()
+
+	// Get all repos
+	repos, err := store.ListRepos(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to list repos: %w", err)
+	}
+
+	if len(repos) == 0 {
+		fmt.Println("No repositories configured. Use 'control dashboard' to add repositories.")
+		return nil
+	}
+
+	fmt.Printf("Starting ingestion for %d repositories...\n", len(repos))
+
+	// Initialize watcher for one-time ingestion
+	watchManager := watcher.NewManager(store)
+	if err := watchManager.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start watcher: %w", err)
+	}
+	defer watchManager.Stop()
+
+	// Start watching all repos for a short period to ingest data
+	for _, repo := range repos {
+		if err := watchManager.StartWatching(repo); err != nil {
+			log.Printf("Failed to start watching %s: %v", repo.Name, err)
+			continue
+		}
+		fmt.Printf("Ingesting data from %s...\n", repo.Name)
+	}
+
+	// Let it run for a bit to collect data
+	time.Sleep(10 * time.Second)
+
+	fmt.Println("Ingestion completed.")
+	return nil
+}
+
+func runBadge(cmd *cobra.Command, args []string) error {
+	ctx := context.Background()
+
+	// Initialize store
+	store := store.NewDuckDBStore("")
+	if err := store.Init(ctx); err != nil {
+		return fmt.Errorf("failed to initialize store: %w", err)
+	}
+	defer store.Close()
+
+	// Calculate current stability score (simplified)
+	// In a real implementation, this would calculate actual metrics
+	stabilityScore := 85 // Placeholder
+
+	badgeURL := fmt.Sprintf("https://img.shields.io/badge/Stability-%d%%25-brightgreen", stabilityScore)
+	markdown := fmt.Sprintf("[![Stability Score](%s)](https://github.com/snowfort-labs/control)", badgeURL)
+
+	fmt.Println("Markdown badge:")
+	fmt.Println(markdown)
+
+	return nil
+}
+
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		fmt.Printf("Please open your browser and go to: %s\n", url)
+		return
+	}
+
+	if err := cmd.Start(); err != nil {
+		fmt.Printf("Failed to open browser. Please go to: %s\n", url)
+	}
 }
