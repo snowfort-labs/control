@@ -1,0 +1,312 @@
+// SQLite Database Service for Snowfort
+
+// @ts-ignore - better-sqlite3 types not fully compatible
+import Database from 'better-sqlite3';
+import { Project, Organization, Session } from '../types/engine';
+import path from 'path';
+import { app } from 'electron';
+
+export class DatabaseService {
+  private db: Database.Database;
+
+  constructor() {
+    // Store database in user data directory
+    const userDataPath = app.getPath('userData');
+    const dbPath = path.join(userDataPath, 'snowfort.db');
+    
+    this.db = (Database as any)(dbPath);
+    this.initializeSchema();
+  }
+
+  private initializeSchema(): void {
+    // Enable foreign keys
+    this.db.pragma('foreign_keys = ON');
+
+    // Create tables
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS organizations (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        order_index INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        org_id TEXT REFERENCES organizations(id) ON DELETE SET NULL,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL UNIQUE,
+        order_index INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_active DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        engine_type TEXT NOT NULL,
+        status TEXT DEFAULT 'idle',
+        config TEXT DEFAULT '{}',
+        order_index INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_active DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS conversations (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        messages TEXT DEFAULT '[]',
+        turn_count INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'active',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        completed_at DATETIME
+      );
+
+      CREATE TABLE IF NOT EXISTS analytics (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        metric_type TEXT NOT NULL,
+        value REAL NOT NULL,
+        metadata TEXT DEFAULT '{}',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_projects_org_id ON projects(org_id);
+      CREATE INDEX IF NOT EXISTS idx_sessions_project_id ON sessions(project_id);
+      CREATE INDEX IF NOT EXISTS idx_conversations_session_id ON conversations(session_id);
+      CREATE INDEX IF NOT EXISTS idx_analytics_session_id ON analytics(session_id);
+    `);
+
+    // Run migrations
+    this.runMigrations();
+  }
+
+  private runMigrations(): void {
+    // Migration: Rename agent_type to engine_type in sessions table
+    try {
+      // Check if agent_type column exists
+      const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as any[];
+      const hasAgentType = columns.some(col => col.name === 'agent_type');
+      const hasEngineType = columns.some(col => col.name === 'engine_type');
+
+      if (hasAgentType && !hasEngineType) {
+        console.log('Migrating agent_type to engine_type...');
+        
+        // SQLite doesn't support ALTER COLUMN, so we need to recreate the table
+        this.db.exec(`
+          BEGIN TRANSACTION;
+          
+          -- Create new sessions table with engine_type
+          CREATE TABLE sessions_new (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            engine_type TEXT NOT NULL,
+            status TEXT DEFAULT 'idle',
+            config TEXT DEFAULT '{}',
+            order_index INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_active DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+          
+          -- Copy data from old table to new table
+          INSERT INTO sessions_new (id, project_id, name, engine_type, status, config, order_index, created_at, last_active)
+          SELECT id, project_id, name, agent_type, status, config, order_index, created_at, last_active
+          FROM sessions;
+          
+          -- Drop old table and rename new one
+          DROP TABLE sessions;
+          ALTER TABLE sessions_new RENAME TO sessions;
+          
+          -- Recreate index
+          CREATE INDEX idx_sessions_project_id ON sessions(project_id);
+          
+          COMMIT;
+        `);
+        
+        console.log('Migration completed successfully');
+      }
+    } catch (error) {
+      console.error('Migration failed:', error);
+      // Don't throw - let the app continue with the current schema
+    }
+  }
+
+  // Organizations
+  createOrganization(name: string): Organization {
+    const id = this.generateId();
+    const orderIndex = this.getNextOrderIndex('organizations');
+    
+    const stmt = this.db.prepare(`
+      INSERT INTO organizations (id, name, order_index)
+      VALUES (?, ?, ?)
+    `);
+    
+    stmt.run(id, name, orderIndex);
+    
+    return {
+      id,
+      name,
+      orderIndex,
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  getOrganizations(): Organization[] {
+    const stmt = this.db.prepare(`
+      SELECT id, name, order_index as orderIndex, created_at as createdAt
+      FROM organizations
+      ORDER BY order_index ASC
+    `);
+    
+    return stmt.all() as Organization[];
+  }
+
+  // Projects
+  createProject(name: string, path: string, organizationId?: string): Project {
+    const id = this.generateId();
+    const orderIndex = organizationId 
+      ? this.getNextOrderIndex('projects', 'org_id = ?', organizationId)
+      : this.getNextOrderIndex('projects', 'org_id IS NULL');
+    
+    const stmt = this.db.prepare(`
+      INSERT INTO projects (id, org_id, name, path, order_index)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    
+    stmt.run(id, organizationId || null, name, path, orderIndex);
+    
+    return {
+      id,
+      name,
+      path,
+      organizationId,
+      createdAt: new Date().toISOString(),
+      lastActive: new Date().toISOString()
+    };
+  }
+
+  getProjects(): Project[] {
+    const stmt = this.db.prepare(`
+      SELECT 
+        id, 
+        org_id as organizationId, 
+        name, 
+        path, 
+        created_at as createdAt,
+        last_active as lastActive
+      FROM projects
+      ORDER BY order_index ASC
+    `);
+    
+    return stmt.all() as Project[];
+  }
+
+  updateProjectLastActive(projectId: string): void {
+    const stmt = this.db.prepare(`
+      UPDATE projects 
+      SET last_active = CURRENT_TIMESTAMP 
+      WHERE id = ?
+    `);
+    
+    stmt.run(projectId);
+  }
+
+  // Sessions
+  createSession(projectId: string, name: string, engineType: string, config: any = {}): Session {
+    const id = this.generateId();
+    const orderIndex = this.getNextOrderIndex('sessions', 'project_id = ?', projectId);
+    
+    const stmt = this.db.prepare(`
+      INSERT INTO sessions (id, project_id, name, engine_type, config, order_index)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    
+    stmt.run(id, projectId, name, engineType, JSON.stringify(config), orderIndex);
+    
+    return {
+      id,
+      projectId,
+      name,
+      engineType: engineType as any,
+      status: 'idle',
+      config,
+      orderIndex,
+      createdAt: new Date().toISOString(),
+      lastActive: new Date().toISOString()
+    };
+  }
+
+  getSessions(projectId?: string): Session[] {
+    const stmt = projectId 
+      ? this.db.prepare(`
+          SELECT 
+            id, 
+            project_id as projectId, 
+            name, 
+            engine_type as engineType, 
+            status,
+            config,
+            order_index as orderIndex,
+            created_at as createdAt,
+            last_active as lastActive
+          FROM sessions 
+          WHERE project_id = ?
+          ORDER BY order_index ASC
+        `)
+      : this.db.prepare(`
+          SELECT 
+            id, 
+            project_id as projectId, 
+            name, 
+            engine_type as engineType, 
+            status,
+            config,
+            order_index as orderIndex,
+            created_at as createdAt,
+            last_active as lastActive
+          FROM sessions 
+          ORDER BY last_active DESC
+        `);
+    
+    const sessions = projectId ? stmt.all(projectId) : stmt.all() as any[];
+    
+    return sessions.map((session: any) => ({
+      ...session,
+      config: JSON.parse(session.config || '{}')
+    }));
+  }
+
+  updateSessionStatus(sessionId: string, status: string): void {
+    const stmt = this.db.prepare(`
+      UPDATE sessions 
+      SET status = ?, last_active = CURRENT_TIMESTAMP 
+      WHERE id = ?
+    `);
+    
+    stmt.run(status, sessionId);
+  }
+
+  // Utility methods
+  private generateId(): string {
+    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  private getNextOrderIndex(table: string, whereClause?: string, ...params: any[]): number {
+    let query = `SELECT COALESCE(MAX(order_index), -1) + 1 as nextIndex FROM ${table}`;
+    
+    if (whereClause) {
+      query += ` WHERE ${whereClause}`;
+    }
+    
+    const stmt = this.db.prepare(query);
+    const result = stmt.get(...params) as unknown as { nextIndex: number };
+    
+    return result.nextIndex;
+  }
+
+  close(): void {
+    this.db.close();
+  }
+}
