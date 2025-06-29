@@ -1,8 +1,8 @@
 {
-  "name": "snowfort",
-  "productName": "Snowfort",
+  "name": "snowfort-desktop",
+  "productName": "Snowfort Desktop",
   "version": "1.0.0",
-  "description": "AI Agent Orchestration Platform by Snowfort Labs",
+  "description": "AI Agent Orchestration Desktop Platform by Snowfort Labs",
   "main": ".webpack/main",
   "scripts": {
     "start": "electron-forge start",

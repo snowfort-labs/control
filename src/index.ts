@@ -37,7 +37,7 @@ const createWindow = (): void => {
     width: 1400,
     minHeight: 600,
     minWidth: 1000,
-    title: 'Snowfort - AI Agent Orchestration Platform',
+    title: 'Snowfort Desktop - AI Agent Orchestration Platform',
     webPreferences: {
       preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
       nodeIntegration: false,

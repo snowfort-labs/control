@@ -151,7 +151,7 @@ await app_launch({
 
 ## Project Architecture
 
-**Snowfort** is an AI Agent Orchestration Platform built with Electron, React, and TypeScript. It provides a desktop interface for managing multiple AI agents (Claude Code, Gemini CLI, OpenAI Codex CLI) through managed terminal sessions.
+**Snowfort Desktop** is an AI Agent Orchestration Platform built with Electron, React, and TypeScript. It provides a desktop interface for managing multiple AI agents (Claude Code, Gemini CLI, OpenAI Codex CLI) through managed terminal sessions.
 
 ### Core Architecture Patterns
 
