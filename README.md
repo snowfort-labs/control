@@ -1,6 +1,6 @@
-# Snowfort Desktop
+# Snowfort
 
-**AI Agent Orchestration Platform**
+**Desktop Application for Software Development via AI Agent Orchestration**
 
 Snowfort Desktop is a cross-platform desktop application that provides a unified interface for managing and orchestrating multiple AI agents (Claude Code, Gemini CLI, OpenAI Codex) through real terminal sessions. Built with Electron, React, and TypeScript.
 
