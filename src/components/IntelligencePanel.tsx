@@ -70,7 +70,9 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({ collapsed,
                 </div>
                 <div className="metric-row">
                   <span className="metric-label">Engine</span>
-                  <span style={{ fontSize: 14 }}>{activeSession.engineType}</span>
+                  <span style={{ fontSize: 14 }}>
+                    {((activeSession.activeEngine || activeSession.engineType) || 'None').replace('claude-code', 'claude code')}
+                  </span>
                 </div>
               </div>
 

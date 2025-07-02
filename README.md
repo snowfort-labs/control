@@ -22,10 +22,10 @@ Snowfort Desktop is a cross-platform desktop application that provides a unified
 
 ### Prerequisites
 
-- **Node.js** 16+ and npm
-- **macOS**: Xcode Command Line Tools (`xcode-select --install`)
-- **Linux**: Build essentials (`sudo apt-get install build-essential python3-dev`)
-- **Windows**: Visual Studio Build Tools
+- **Node.js 22 LTS** (22.11.0 or later) - [Download Node.js](https://nodejs.org/)
+- **npm** (included with Node.js)
+
+> **✅ No Build Tools Required!** With Node.js 22, prebuilt native modules eliminate the need for Xcode or Visual Studio Build Tools in most cases.
 
 ### Installation
 
@@ -34,7 +34,12 @@ Snowfort Desktop is a cross-platform desktop application that provides a unified
 git clone https://github.com/snowfort-labs/control.git
 cd control
 
-# Install dependencies
+# Ensure you're using Node.js 22 (recommended)
+nvm install 22  # if using nvm
+nvm use 22      # if using nvm
+node --version  # should show v22.x.x
+
+# Install dependencies (no build tools needed!)
 npm install
 
 # Start the application
@@ -52,8 +57,8 @@ npm run start
 ### Available Scripts
 
 ```bash
-npm run start              # Start in development mode
-npm run start:no-devtools  # Start without DevTools
+npm run start              # Start in development mode (no DevTools)
+npm run start:devtools     # Start with DevTools for debugging
 npm run start:mcp          # Start optimized for MCP testing
 npm run package            # Package for distribution
 npm run make               # Build distributable packages
@@ -112,22 +117,33 @@ Snowfort Desktop automatically detects available AI agents and handles authentic
 
 ## 🐛 Troubleshooting
 
-### Build Issues
+### Installation Issues
 
-If `node-pty` fails to compile:
+**Node.js Version**: Ensure you're using Node.js 22 LTS:
 
 ```bash
-# macOS
-xcode-select --install
-export SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
-npm install
+# Check version
+node --version  # Should show v22.x.x
 
-# Linux
-sudo apt-get install build-essential python3-dev
-npm install
+# Install Node.js 22 LTS if needed
+# Option 1: Using nvm (recommended)
+nvm install 22
+nvm use 22
 
-# Windows
-# Install Visual Studio Build Tools
+# Option 2: Download from nodejs.org
+# Visit https://nodejs.org/ and download Node.js 22 LTS
+```
+
+**Rare Build Issues** (only if prebuilt binaries fail):
+
+```bash
+# macOS (rarely needed with Node.js 22)
+# xcode-select --install
+
+# Linux (rarely needed with Node.js 22)
+# sudo apt-get install build-essential python3-dev
+
+# Then retry installation
 npm install
 ```
 

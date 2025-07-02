@@ -25,6 +25,7 @@ interface AppStore {
   setActiveSession: (sessionId: string) => void;
   setIntelligencePanelCollapsed: (collapsed: boolean) => void;
   setShowOnboarding: (show: boolean) => void;
+  updateSession: (session: Session) => void;
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -73,7 +74,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
       );
       
       set((state) => ({
-        sessions: [...state.sessions, session]
+        sessions: [...state.sessions, session],
+        activeSession: session, // Set the new session as active
       }));
       
       return session;
@@ -90,4 +92,17 @@ export const useAppStore = create<AppStore>((set, get) => ({
   
   setIntelligencePanelCollapsed: (collapsed) => set({ intelligencePanelCollapsed: collapsed }),
   setShowOnboarding: (show) => set({ showOnboarding: show }),
+
+  updateSession: (session) => set((state) => {
+    const sessions = state.sessions.map(s => s.id === session.id ? session : s);
+    const activeSession = state.activeSession?.id === session.id ? session : state.activeSession;
+    return { sessions, activeSession };
+  }),
 }));
+
+// Listen for session updates from the main process
+if (window.snowfortAPI) {
+  window.snowfortAPI.onSessionUpdate((session: Session) => {
+    useAppStore.getState().updateSession(session);
+  });
+}

@@ -4,21 +4,6 @@ export type EngineType = 'gemini' | 'claude' | 'codex';
 
 export type SessionStatus = 'idle' | 'ready' | 'working' | 'error' | 'completed';
 
-export interface EngineConfig {
-  type: EngineType;
-  name: string;
-  executable: string;
-  defaultArgs: string[];
-  authMethod: 'oauth' | 'api-key' | 'google-login';
-  installCommand?: string;
-  detectCommand: string;
-  statePatterns: {
-    ready: string[];
-    working: string[];
-    error: string[];
-    completed: string[];
-  };
-}
 
 export interface Project {
   id: string;
@@ -42,13 +27,14 @@ export interface Session {
   id: string;
   projectId: string;
   name: string;
-  engineType: EngineType;
+  engineType?: EngineType; // Optional - generic terminal sessions don't have a specific engine
   status: SessionStatus;
   config?: Record<string, any>;
   orderIndex: number;
   createdAt: string;
   lastActive: string;
   turnCount?: number; // UI expects this for analytics
+  activeEngine?: EngineType; // The currently running engine (if any) - updated via terminal monitoring
 }
 
 export interface SessionMetrics {
@@ -58,10 +44,3 @@ export interface SessionMetrics {
   successRate: number;
 }
 
-export type EngineStatus = 'available' | 'not-installed' | 'auth-required' | 'subscription-required' | 'credits-required';
-
-export interface EngineAvailability {
-  claude: EngineStatus;
-  codex: EngineStatus;
-  gemini: EngineStatus;
-}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { EngineAvailability, EngineType } from '../types/engine';
+import { EngineType, Session } from '../types/engine';
 import { useAppStore } from '../store/appStore';
 import geminiLogo from '../assets/gemini_logo.png';
 import claudeLogo from '../assets/claude-logo.png';
@@ -15,12 +15,12 @@ export const ProjectOnboarding: React.FC<ProjectOnboardingProps> = ({
   onCancel 
 }) => {
   const { addProject, setActiveSession } = useAppStore();
-  const addSession = (session: any) => {
+  const addSession = (session: Session) => {
     useAppStore.setState((state) => ({
       sessions: [...state.sessions, session]
     }));
   };
-  const [step, setStep] = useState<'path' | 'engine' | 'creating'>('path');
+  const [step, setStep] = useState<'path' | 'creating'>('path');
   const [projectPath, setProjectPath] = useState('');
   const [projectName, setProjectName] = useState('');
   const [selectedEngine, setSelectedEngine] = useState<EngineType>('gemini');
@@ -42,18 +42,10 @@ export const ProjectOnboarding: React.FC<ProjectOnboardingProps> = ({
       boxShadow: isSelected ? '0 0 0 2px #007AFF' : 'none'
     };
   };
-  const [engineAvailability, setEngineAvailability] = useState<EngineAvailability | null>(null);
-
-  useEffect(() => {
-    // Detect available engines
-    if (window.snowfortAPI && window.snowfortAPI.detectAvailableEngines) {
-      window.snowfortAPI.detectAvailableEngines().then(setEngineAvailability);
-    }
-  }, []);
 
   const handlePathSubmit = () => {
     if (projectPath && projectName) {
-      setStep('engine');
+      handleCreateProject();
     }
   };
 
@@ -75,7 +67,7 @@ export const ProjectOnboarding: React.FC<ProjectOnboardingProps> = ({
     }
   };
 
-  const handleEngineSelect = async () => {
+  const handleCreateProject = async () => {
     setStep('creating');
     
     try {
@@ -85,11 +77,10 @@ export const ProjectOnboarding: React.FC<ProjectOnboardingProps> = ({
         projectPath
       );
 
-      // Create initial session
+      // Create initial generic terminal session
       const session = await window.snowfortAPI.createSession(
         project.id,
-        `${getEngineDisplayName(selectedEngine)} Session`,
-        selectedEngine
+        'Session 1'
       );
 
       // Add project to store
@@ -97,13 +88,6 @@ export const ProjectOnboarding: React.FC<ProjectOnboardingProps> = ({
 
       // Add session to store
       addSession(session);
-      
-      // Start engine session
-      await window.snowfortAPI.createEngineSession(
-        session.id,
-        selectedEngine,
-        projectPath
-      );
 
       // Set the new session as active so user can start using it
       setActiveSession(session.id);
@@ -124,21 +108,11 @@ export const ProjectOnboarding: React.FC<ProjectOnboardingProps> = ({
   };
 
   const getEngineStatus = (engineType: EngineType): string => {
-    if (!engineAvailability) return 'Checking...';
-    
-    const status = engineAvailability[engineType];
-    switch (status) {
-      case 'available': return 'Installed';
-      case 'not-installed': return 'Not Installed';
-      case 'auth-required': return 'Auth Required';
-      case 'subscription-required': return 'Subscription Required';
-      case 'credits-required': return 'Credits Required';
-      default: return 'Unknown';
-    }
+    return 'Ready';
   };
 
   const isEngineAvailable = (engineType: EngineType): boolean => {
-    return engineAvailability?.[engineType] === 'available';
+    return true; // All engines are available through PTY terminal
   };
 
   if (step === 'creating') {
@@ -162,168 +136,7 @@ export const ProjectOnboarding: React.FC<ProjectOnboardingProps> = ({
     );
   }
 
-  if (step === 'engine') {
-    return (
-      <div className="modal-overlay">
-        <div className="modal-content">
-          <div className="modal-header">
-            <h2>Select Default AI Engine</h2>
-            <p>Choose which AI engine to use for this project (can be changed later)</p>
-          </div>
-          <div className="modal-body">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div 
-                onClick={() => isEngineAvailable('gemini') && setSelectedEngine('gemini')}
-                style={getEngineCardStyle('gemini', isEngineAvailable('gemini'))}
-                onMouseEnter={(e) => {
-                  if (isEngineAvailable('gemini') && selectedEngine !== 'gemini') {
-                    e.currentTarget.style.boxShadow = '0 0 0 1px #007AFF';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (selectedEngine !== 'gemini') {
-                    e.currentTarget.style.boxShadow = 'none';
-                  } else {
-                    e.currentTarget.style.boxShadow = '0 0 0 2px #007AFF';
-                  }
-                }}
-              >
-                <div style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '8px',
-                  backgroundColor: 'white',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '4px'
-                }}>
-                  <img 
-                    src={geminiLogo}
-                    alt="Gemini"
-                    width="40"
-                    height="40"
-                    style={{ borderRadius: '4px', objectFit: 'contain' }}
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: '600', fontSize: '16px', marginBottom: '4px' }}>Gemini CLI</div>
-                  <div style={{ display: 'flex', gap: '12px', fontSize: '12px' }}>
-                    <span style={{ color: 'var(--accent-color)', fontWeight: '500' }}>Free + Pro tiers</span>
-                    <span style={{ color: 'var(--text-muted)' }}>MCP Support</span>
-                  </div>
-                </div>
-                <div style={{ fontSize: '14px', fontWeight: '500' }}>{getEngineStatus('gemini')}</div>
-              </div>
-
-              <div 
-                onClick={() => isEngineAvailable('claude') && setSelectedEngine('claude')}
-                style={getEngineCardStyle('claude', isEngineAvailable('claude'))}
-                onMouseEnter={(e) => {
-                  if (isEngineAvailable('claude') && selectedEngine !== 'claude') {
-                    e.currentTarget.style.boxShadow = '0 0 0 1px #007AFF';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (selectedEngine !== 'claude') {
-                    e.currentTarget.style.boxShadow = 'none';
-                  } else {
-                    e.currentTarget.style.boxShadow = '0 0 0 2px #007AFF';
-                  }
-                }}
-              >
-                <div style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '8px',
-                  backgroundColor: 'white',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '4px'
-                }}>
-                  <img 
-                    src={claudeLogo}
-                    alt="Claude"
-                    width="40"
-                    height="40"
-                    style={{ borderRadius: '4px', objectFit: 'contain' }}
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: '600', fontSize: '16px', marginBottom: '4px' }}>Claude Code</div>
-                  <div style={{ display: 'flex', gap: '12px', fontSize: '12px' }}>
-                    <span style={{ color: 'var(--accent-color)', fontWeight: '500' }}>Subscription ($20+/month)</span>
-                    <span style={{ color: 'var(--text-muted)' }}>MCP Support</span>
-                  </div>
-                </div>
-                <div style={{ fontSize: '14px', fontWeight: '500' }}>{getEngineStatus('claude')}</div>
-              </div>
-
-              <div 
-                onClick={() => isEngineAvailable('codex') && setSelectedEngine('codex')}
-                style={getEngineCardStyle('codex', isEngineAvailable('codex'))}
-                onMouseEnter={(e) => {
-                  if (isEngineAvailable('codex') && selectedEngine !== 'codex') {
-                    e.currentTarget.style.boxShadow = '0 0 0 1px #007AFF';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (selectedEngine !== 'codex') {
-                    e.currentTarget.style.boxShadow = 'none';
-                  } else {
-                    e.currentTarget.style.boxShadow = '0 0 0 2px #007AFF';
-                  }
-                }}
-              >
-                <div style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '8px',
-                  backgroundColor: 'white',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '4px'
-                }}>
-                  <img 
-                    src={openaiLogo}
-                    alt="OpenAI"
-                    width="40"
-                    height="40"
-                    style={{ borderRadius: '4px', objectFit: 'contain' }}
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: '600', fontSize: '16px', marginBottom: '4px' }}>OpenAI Codex CLI</div>
-                  <div style={{ display: 'flex', gap: '12px', fontSize: '12px' }}>
-                    <span style={{ color: 'var(--accent-color)', fontWeight: '500' }}>Pay-as-you-go (API Credits)</span>
-                  </div>
-                </div>
-                <div style={{ fontSize: '14px', fontWeight: '500' }}>{getEngineStatus('codex')}</div>
-              </div>
-            </div>
-
-            {!engineAvailability && (
-              <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
-                Detecting available engines...
-              </div>
-            )}
-          </div>
-          <div className="modal-footer">
-            <button onClick={onCancel} className="btn-secondary">Cancel</button>
-            <button 
-              onClick={handleEngineSelect} 
-              className="btn-primary"
-              disabled={!isEngineAvailable(selectedEngine)}
-            >
-              Create Project with {getEngineDisplayName(selectedEngine)}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Engine selection step removed - no longer needed for generic terminal sessions
 
   return (
     <div className="modal-overlay">
@@ -386,7 +199,7 @@ export const ProjectOnboarding: React.FC<ProjectOnboardingProps> = ({
             className="btn-primary"
             disabled={!projectPath || !projectName}
           >
-Next: Choose Engine
+Create Project
           </button>
         </div>
       </div>

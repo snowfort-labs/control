@@ -1,5 +1,6 @@
 // SQLite Database Service for Snowfort
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore - better-sqlite3 types not fully compatible
 import Database from 'better-sqlite3';
 import { Project, Organization, Session } from '../types/engine';
@@ -8,14 +9,19 @@ import { app } from 'electron';
 
 export class DatabaseService {
   private db: Database.Database;
+  private dbPath: string;
 
   constructor() {
     // Store database in user data directory
     const userDataPath = app.getPath('userData');
-    const dbPath = path.join(userDataPath, 'snowfort.db');
+    this.dbPath = path.join(userDataPath, 'snowfort.db');
     
-    this.db = (Database as any)(dbPath);
+    this.db = (Database as any)(this.dbPath);
     this.initializeSchema();
+  }
+
+  getDatabasePath(): string {
+    return this.dbPath;
   }
 
   private initializeSchema(): void {
@@ -45,10 +51,11 @@ export class DatabaseService {
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
-        engine_type TEXT NOT NULL,
+        engine_type TEXT,
         status TEXT DEFAULT 'idle',
         config TEXT DEFAULT '{}',
         order_index INTEGER DEFAULT 0,
+        active_engine TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         last_active DATETIME DEFAULT CURRENT_TIMESTAMP
       );
@@ -89,6 +96,7 @@ export class DatabaseService {
       const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as any[];
       const hasAgentType = columns.some(col => col.name === 'agent_type');
       const hasEngineType = columns.some(col => col.name === 'engine_type');
+      const hasActiveEngine = columns.some(col => col.name === 'active_engine');
 
       if (hasAgentType && !hasEngineType) {
         console.log('Migrating agent_type to engine_type...');
@@ -102,10 +110,11 @@ export class DatabaseService {
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
             name TEXT NOT NULL,
-            engine_type TEXT NOT NULL,
+            engine_type TEXT,
             status TEXT DEFAULT 'idle',
             config TEXT DEFAULT '{}',
             order_index INTEGER DEFAULT 0,
+            active_engine TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             last_active DATETIME DEFAULT CURRENT_TIMESTAMP
           );
@@ -129,6 +138,69 @@ export class DatabaseService {
       }
     } catch (error) {
       console.error('Migration failed:', error);
+      // Don't throw - let the app continue with the current schema
+    }
+
+    // Migration: Make engine_type nullable for generic terminal sessions
+    try {
+      const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as any[];
+      const engineTypeColumn = columns.find(col => col.name === 'engine_type');
+      
+      // Check if engine_type is currently NOT NULL
+      if (engineTypeColumn && engineTypeColumn.notnull === 1) {
+        console.log('Making engine_type nullable for generic terminal sessions...');
+        
+        // SQLite doesn't support ALTER COLUMN, so we need to recreate the table
+        this.db.exec(`
+          BEGIN TRANSACTION;
+          
+          -- Create new sessions table with nullable engine_type
+          CREATE TABLE sessions_new (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            engine_type TEXT,
+            status TEXT DEFAULT 'idle',
+            config TEXT DEFAULT '{}',
+            order_index INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_active DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+          
+          -- Copy data from old table to new table
+          INSERT INTO sessions_new (id, project_id, name, engine_type, status, config, order_index, created_at, last_active)
+          SELECT id, project_id, name, engine_type, status, config, order_index, created_at, last_active
+          FROM sessions;
+          
+          -- Drop old table and rename new one
+          DROP TABLE sessions;
+          ALTER TABLE sessions_new RENAME TO sessions;
+          
+          -- Recreate index
+          CREATE INDEX IF NOT EXISTS idx_sessions_project_id ON sessions(project_id);
+          
+          COMMIT;
+        `);
+        
+        console.log('Engine type nullable migration completed successfully');
+      }
+    } catch (error) {
+      console.error('Engine type nullable migration failed:', error);
+      // Don't throw - let the app continue with the current schema
+    }
+
+    // Migration: Add active_engine column for engine detection
+    try {
+      const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as any[];
+      const hasActiveEngine = columns.some(col => col.name === 'active_engine');
+      
+      if (!hasActiveEngine) {
+        console.log('Adding active_engine column for real-time engine detection...');
+        this.db.prepare('ALTER TABLE sessions ADD COLUMN active_engine TEXT').run();
+        console.log('Active engine migration completed successfully');
+      }
+    } catch (error) {
+      console.error('Active engine migration failed:', error);
       // Don't throw - let the app continue with the current schema
     }
   }
@@ -160,7 +232,7 @@ export class DatabaseService {
       ORDER BY order_index ASC
     `);
     
-    return stmt.all() as Organization[];
+    return stmt.all() as unknown as Organization[];
   }
 
   // Projects
@@ -200,7 +272,7 @@ export class DatabaseService {
       ORDER BY order_index ASC
     `);
     
-    return stmt.all() as Project[];
+    return stmt.all() as unknown as Project[];
   }
 
   updateProjectLastActive(projectId: string): void {
@@ -214,7 +286,7 @@ export class DatabaseService {
   }
 
   // Sessions
-  createSession(projectId: string, name: string, engineType: string, config: any = {}): Session {
+  createSession(projectId: string, name: string, engineType?: string, config: any = {}): Session {
     const id = this.generateId();
     const orderIndex = this.getNextOrderIndex('sessions', 'project_id = ?', projectId);
     
@@ -223,7 +295,7 @@ export class DatabaseService {
       VALUES (?, ?, ?, ?, ?, ?)
     `);
     
-    stmt.run(id, projectId, name, engineType, JSON.stringify(config), orderIndex);
+    stmt.run(id, projectId, name, engineType || null, JSON.stringify(config), orderIndex);
     
     return {
       id,
@@ -249,6 +321,7 @@ export class DatabaseService {
             status,
             config,
             order_index as orderIndex,
+            active_engine as activeEngine,
             created_at as createdAt,
             last_active as lastActive
           FROM sessions 
@@ -264,6 +337,7 @@ export class DatabaseService {
             status,
             config,
             order_index as orderIndex,
+            active_engine as activeEngine,
             created_at as createdAt,
             last_active as lastActive
           FROM sessions 
@@ -286,6 +360,107 @@ export class DatabaseService {
     `);
     
     stmt.run(status, sessionId);
+  }
+
+  updateProject(projectId: string, updates: Partial<Project>): Project {
+    const validFields = ['name', 'path', 'current_branch', 'org_id'];
+    const setClauses: string[] = [];
+    const values: any[] = [];
+
+    for (const [key, value] of Object.entries(updates)) {
+      const dbKey = key === 'currentBranch' ? 'current_branch' : 
+                    key === 'orgId' ? 'org_id' : key;
+      
+      if (validFields.includes(dbKey)) {
+        setClauses.push(`${dbKey} = ?`);
+        values.push(value);
+      }
+    }
+
+    if (setClauses.length === 0) {
+      throw new Error('No valid fields to update');
+    }
+
+    setClauses.push('last_active = CURRENT_TIMESTAMP');
+    values.push(projectId);
+
+    const stmt = this.db.prepare(`
+      UPDATE projects 
+      SET ${setClauses.join(', ')} 
+      WHERE id = ?
+    `);
+    
+    stmt.run(...values);
+
+    // Return the updated project
+    const getStmt = this.db.prepare('SELECT * FROM projects WHERE id = ?');
+    const result = getStmt.get(projectId) as any;
+    
+    return {
+      id: result.id,
+      name: result.name,
+      path: result.path,
+      currentBranch: result.current_branch,
+      orgId: result.org_id,
+      lastActive: result.last_active,
+      createdAt: result.created_at
+    };
+  }
+
+  updateSession(sessionId: string, updates: Partial<Session>): Session {
+    const validFields = ['name', 'status', 'engine_type', 'config', 'active_engine'];
+    const setClauses: string[] = [];
+    const values: any[] = [];
+
+    for (const [key, value] of Object.entries(updates)) {
+      const dbKey = key === 'engineType' ? 'engine_type' : key === 'activeEngine' ? 'active_engine' : key;
+      
+      if (validFields.includes(dbKey)) {
+        setClauses.push(`${dbKey} = ?`);
+        values.push(dbKey === 'config' ? JSON.stringify(value) : value);
+      }
+    }
+
+    if (setClauses.length === 0) {
+      throw new Error('No valid fields to update');
+    }
+
+    setClauses.push('last_active = CURRENT_TIMESTAMP');
+    values.push(sessionId);
+
+    const stmt = this.db.prepare(`
+      UPDATE sessions 
+      SET ${setClauses.join(', ')} 
+      WHERE id = ?
+    `);
+    
+    stmt.run(...values);
+
+    // Return the updated session
+    const getStmt = this.db.prepare('SELECT * FROM sessions WHERE id = ?');
+    const result = getStmt.get(sessionId) as any;
+    
+    return {
+      id: result.id,
+      projectId: result.project_id,
+      name: result.name,
+      engineType: result.engine_type,
+      status: result.status,
+      config: JSON.parse(result.config || '{}'),
+      activeEngine: result.active_engine,
+      lastActive: result.last_active,
+      createdAt: result.created_at,
+      orderIndex: result.order_index
+    };
+  }
+
+  deleteSession(sessionId: string): void {
+    const stmt = this.db.prepare('DELETE FROM sessions WHERE id = ?');
+    const result = stmt.run(sessionId);
+    
+    if (result.changes === 0) {
+      throw new Error(`Session with id ${sessionId} not found`);
+    }
   }
 
   // Utility methods

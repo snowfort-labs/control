@@ -22,22 +22,25 @@ export const TerminalPanel: React.FC = () => {
     );
   }
 
-  const getEngineName = (engineType: string) => {
-    switch (engineType) {
+  const getEngineName = (engineType?: string, activeEngine?: string) => {
+    const engine = activeEngine || engineType;
+    if (!engine) return 'Terminal Session';
+    
+    switch (engine) {
       case 'claude': return 'Claude Code';
       case 'codex': return 'OpenAI Codex';
       case 'gemini': return 'Gemini CLI';
-      default: return 'Unknown Engine';
+      default: return 'Terminal Session';
     }
   };
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div className="terminal-header">
+      <div className="panel-header">
         <span>{activeProject.name}</span>
         <span>•</span>
         <span style={{ color: activeSession.status === 'ready' ? '#10b981' : activeSession.status === 'working' ? '#f59e0b' : '#6b7280' }}>
-          {getEngineName(activeSession.engineType)}
+          {getEngineName(activeSession.engineType, activeSession.activeEngine)}
         </span>
         <div style={{ marginLeft: 'auto' }}>
           <button className="shortcut-btn">⚙️ Config</button>
@@ -46,9 +49,9 @@ export const TerminalPanel: React.FC = () => {
       
       <TerminalComponent
         sessionId={activeSession.id}
-        engineType={activeSession.engineType as any}
+        engineType={activeSession.engineType}
         projectPath={activeProject.path}
-        onStateChange={(state: { status: string; message?: string }) => {
+        onStateChange={() => {
           // Update session status in store
           // This will be implemented when we add the store actions
         }}

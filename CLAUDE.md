@@ -2,10 +2,25 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Node.js Requirements
+
+**Required Version:** Node.js 22 LTS (22.11.0 or later, to align with Electron 37.1.0's bundled Node.js version. Later versions may not include prebuilt dependencies like `node-pty`)
+
+**Installation:**
+```bash
+# Using nvm (recommended)
+nvm install 22
+nvm use 22
+
+# Verify version
+node --version  # Should show v22.x.x
+```
+
 ## Development Commands
 
 **Core Development:**
-- `npm run start` - Start Electron app in development mode with hot reload
+- `npm run start` - Start Electron app in development mode (no DevTools)
+- `npm run start:devtools` - Start Electron app with DevTools open
 - `npm run lint` - Run ESLint on TypeScript/TSX files
 - `npm run package` - Package the Electron app for distribution
 - `npm run make` - Build distributable packages for the current platform
@@ -14,7 +29,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The project uses webpack with ts-loader for compilation. TypeScript errors are checked in real-time during development via ForkTsCheckerWebpackPlugin.
 
 **MCP Electron Testing:**
-For automated testing with sfcg-electron MCP (Model Context Protocol):
+For automated testing with circuit-electron MCP:
 ```bash
 # Step 1: In terminal, start your dev server first
 npm run start
@@ -30,11 +45,11 @@ await app_launch({
 
 1. **Use MCP-Optimized Scripts:**
    ```bash
-   # Regular development (with DevTools)
+   # Regular development (no DevTools - clean interface)
    npm run start
    
-   # Development without DevTools
-   npm run start:no-devtools
+   # Development with DevTools (for debugging)
+   npm run start:devtools
    
    # Optimized for MCP testing (no DevTools, MCP mode enabled)
    npm run start:mcp
@@ -106,16 +121,16 @@ await app_launch({
    - Platform-specific shell detection and PATH setup
    - Session-based PTY process management
    
-   **Build Requirement:**
-   `node-pty` requires native compilation. If build fails:
+   **Build Requirements:**
+   With Node.js 22 LTS, native modules use prebuilt binaries in most cases. Build tools are only needed for custom configurations or older systems:
+   
    ```bash
-   # Install build tools (macOS)
-   xcode-select --install
+   # Only if prebuilt binaries fail (rare with Node.js 22)
+   # macOS: xcode-select --install
+   # Linux: sudo apt-get install build-essential python3-dev
+   # Windows: Visual Studio Build Tools
    
-   # Install build tools (Linux)
-   sudo apt-get install build-essential python3-dev
-   
-   # Then retry
+   # Standard installation (works with Node.js 22)
    npm install
    ```
 
@@ -151,7 +166,7 @@ await app_launch({
 
 ## Project Architecture
 
-**Snowfort Desktop** is an AI Agent Orchestration Platform built with Electron, React, and TypeScript. It provides a desktop interface for managing multiple AI agents (Claude Code, Gemini CLI, OpenAI Codex CLI) through managed terminal sessions.
+**Snowfort Desktop** is an AI Agent Orchestration Platform built with Electron, React, and TypeScript. It provides a desktop interface for managing multiple AI agents (Claude Code, Gemini CLI, OpenAI Codex CLI) through managed terminal sessions. These agents act as the "engine" of the Snowfort app, providing it the ability to run its own LLM-based workflows.
 
 ### Core Architecture Patterns
 

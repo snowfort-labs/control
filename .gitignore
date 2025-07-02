@@ -102,3 +102,6 @@ verify-feedback-loop.md
 
 # Additional assets that might be duplicated
 /assets/
+
+# Gemini Config Backups
+.snowfort-config-backups/
