@@ -3,7 +3,7 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore - better-sqlite3 types not fully compatible
 import Database from 'better-sqlite3';
-import { Project, Organization, Session } from '../types/engine';
+import { Project, Organization, Session, Task, TaskPlan } from '../types/engine';
 import path from 'path';
 import { app } from 'electron';
 
@@ -79,10 +79,41 @@ export class DatabaseService {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
+      CREATE TABLE IF NOT EXISTS tasks (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        source TEXT DEFAULT 'manual',
+        source_id TEXT,
+        source_url TEXT,
+        task_type TEXT,
+        status TEXT DEFAULT 'planned',
+        estimated_time INTEGER,
+        affected_files TEXT DEFAULT '[]',
+        conflict_risk INTEGER,
+        conflict_details TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        completed_at DATETIME
+      );
+
+      CREATE TABLE IF NOT EXISTS task_plans (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        task_ids TEXT DEFAULT '[]',
+        phases TEXT DEFAULT '[]',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE INDEX IF NOT EXISTS idx_projects_org_id ON projects(org_id);
       CREATE INDEX IF NOT EXISTS idx_sessions_project_id ON sessions(project_id);
       CREATE INDEX IF NOT EXISTS idx_conversations_session_id ON conversations(session_id);
       CREATE INDEX IF NOT EXISTS idx_analytics_session_id ON analytics(session_id);
+      CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
+      CREATE INDEX IF NOT EXISTS idx_task_plans_project_id ON task_plans(project_id);
     `);
 
     // Run migrations
@@ -467,6 +498,246 @@ export class DatabaseService {
     if (result.changes === 0) {
       throw new Error(`Session with id ${sessionId} not found`);
     }
+  }
+
+  // Tasks
+  createTask(projectId: string, title: string, body: string, options: {
+    source?: 'manual' | 'github';
+    sourceId?: string;
+    sourceUrl?: string;
+    taskType?: string;
+  } = {}): Task {
+    const id = this.generateId();
+    
+    const stmt = this.db.prepare(`
+      INSERT INTO tasks (id, project_id, title, body, source, source_id, source_url, task_type)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    
+    stmt.run(
+      id, 
+      projectId, 
+      title, 
+      body, 
+      options.source || 'manual',
+      options.sourceId || null,
+      options.sourceUrl || null,
+      options.taskType || null
+    );
+    
+    return {
+      id,
+      projectId,
+      title,
+      body,
+      source: options.source || 'manual',
+      sourceId: options.sourceId,
+      sourceUrl: options.sourceUrl,
+      taskType: options.taskType,
+      status: 'planned',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  getTasks(projectId: string): Task[] {
+    const stmt = this.db.prepare(`
+      SELECT 
+        id,
+        project_id as projectId,
+        title,
+        body,
+        source,
+        source_id as sourceId,
+        source_url as sourceUrl,
+        task_type as taskType,
+        status,
+        estimated_time as estimatedTime,
+        affected_files as affectedFiles,
+        conflict_risk as conflictRisk,
+        conflict_details as conflictDetails,
+        created_at as createdAt,
+        updated_at as updatedAt,
+        completed_at as completedAt
+      FROM tasks 
+      WHERE project_id = ?
+      ORDER BY created_at DESC
+    `);
+    
+    const tasks = stmt.all(projectId) as any[];
+    
+    return tasks.map((task: any) => ({
+      ...task,
+      affectedFiles: JSON.parse(task.affectedFiles || '[]')
+    }));
+  }
+
+  updateTask(taskId: string, updates: Partial<Task>): Task {
+    const validFields = [
+      'title', 'body', 'status', 'task_type', 'estimated_time', 
+      'affected_files', 'conflict_risk', 'conflict_details', 'completed_at'
+    ];
+    const setClauses: string[] = [];
+    const values: any[] = [];
+
+    for (const [key, value] of Object.entries(updates)) {
+      const dbKey = key === 'taskType' ? 'task_type' : 
+                    key === 'estimatedTime' ? 'estimated_time' :
+                    key === 'affectedFiles' ? 'affected_files' :
+                    key === 'conflictRisk' ? 'conflict_risk' :
+                    key === 'conflictDetails' ? 'conflict_details' :
+                    key === 'completedAt' ? 'completed_at' : key;
+      
+      if (validFields.includes(dbKey)) {
+        setClauses.push(`${dbKey} = ?`);
+        if (dbKey === 'affected_files') {
+          values.push(JSON.stringify(value));
+        } else {
+          values.push(value);
+        }
+      }
+    }
+
+    if (setClauses.length === 0) {
+      throw new Error('No valid fields to update');
+    }
+
+    setClauses.push('updated_at = CURRENT_TIMESTAMP');
+    values.push(taskId);
+
+    const stmt = this.db.prepare(`
+      UPDATE tasks 
+      SET ${setClauses.join(', ')} 
+      WHERE id = ?
+    `);
+    
+    stmt.run(...values);
+
+    // Return the updated task
+    const getStmt = this.db.prepare('SELECT * FROM tasks WHERE id = ?');
+    const result = getStmt.get(taskId) as any;
+    
+    return {
+      id: result.id,
+      projectId: result.project_id,
+      title: result.title,
+      body: result.body,
+      source: result.source,
+      sourceId: result.source_id,
+      sourceUrl: result.source_url,
+      taskType: result.task_type,
+      status: result.status,
+      estimatedTime: result.estimated_time,
+      affectedFiles: JSON.parse(result.affected_files || '[]'),
+      conflictRisk: result.conflict_risk,
+      conflictDetails: result.conflict_details,
+      createdAt: result.created_at,
+      updatedAt: result.updated_at,
+      completedAt: result.completed_at
+    };
+  }
+
+  deleteTask(taskId: string): void {
+    const stmt = this.db.prepare('DELETE FROM tasks WHERE id = ?');
+    const result = stmt.run(taskId);
+    
+    if (result.changes === 0) {
+      throw new Error(`Task with id ${taskId} not found`);
+    }
+  }
+
+  // Task Plans
+  createTaskPlan(projectId: string, name: string, taskIds: string[]): TaskPlan {
+    const id = this.generateId();
+    
+    const stmt = this.db.prepare(`
+      INSERT INTO task_plans (id, project_id, name, task_ids)
+      VALUES (?, ?, ?, ?)
+    `);
+    
+    stmt.run(id, projectId, name, JSON.stringify(taskIds));
+    
+    return {
+      id,
+      projectId,
+      name,
+      taskIds,
+      phases: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  getTaskPlans(projectId: string): TaskPlan[] {
+    const stmt = this.db.prepare(`
+      SELECT 
+        id,
+        project_id as projectId,
+        name,
+        task_ids as taskIds,
+        phases,
+        created_at as createdAt,
+        updated_at as updatedAt
+      FROM task_plans 
+      WHERE project_id = ?
+      ORDER BY updated_at DESC
+    `);
+    
+    const plans = stmt.all(projectId) as any[];
+    
+    return plans.map((plan: any) => ({
+      ...plan,
+      taskIds: JSON.parse(plan.taskIds || '[]'),
+      phases: JSON.parse(plan.phases || '[]')
+    }));
+  }
+
+  updateTaskPlan(planId: string, updates: Partial<TaskPlan>): TaskPlan {
+    const validFields = ['name', 'task_ids', 'phases'];
+    const setClauses: string[] = [];
+    const values: any[] = [];
+
+    for (const [key, value] of Object.entries(updates)) {
+      const dbKey = key === 'taskIds' ? 'task_ids' : key;
+      
+      if (validFields.includes(dbKey)) {
+        setClauses.push(`${dbKey} = ?`);
+        if (dbKey === 'task_ids' || dbKey === 'phases') {
+          values.push(JSON.stringify(value));
+        } else {
+          values.push(value);
+        }
+      }
+    }
+
+    if (setClauses.length === 0) {
+      throw new Error('No valid fields to update');
+    }
+
+    setClauses.push('updated_at = CURRENT_TIMESTAMP');
+    values.push(planId);
+
+    const stmt = this.db.prepare(`
+      UPDATE task_plans 
+      SET ${setClauses.join(', ')} 
+      WHERE id = ?
+    `);
+    
+    stmt.run(...values);
+
+    // Return the updated plan
+    const getStmt = this.db.prepare('SELECT * FROM task_plans WHERE id = ?');
+    const result = getStmt.get(planId) as any;
+    
+    return {
+      id: result.id,
+      projectId: result.project_id,
+      name: result.name,
+      taskIds: JSON.parse(result.task_ids || '[]'),
+      phases: JSON.parse(result.phases || '[]'),
+      createdAt: result.created_at,
+      updatedAt: result.updated_at
+    };
   }
 
   // Utility methods

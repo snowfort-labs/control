@@ -23,6 +23,7 @@ interface AppStore {
   addProject: (project: Project) => void;
   createSession: (projectId: string, engineType: EngineType) => void;
   setActiveSession: (sessionId: string) => void;
+  setActiveProject: (projectId: string) => void;
   setIntelligencePanelCollapsed: (collapsed: boolean) => void;
   setShowOnboarding: (show: boolean) => void;
   updateSession: (session: Session) => void;
@@ -88,6 +89,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const session = get().sessions.find(s => s.id === sessionId);
     const project = session ? get().projects.find(p => p.id === session.projectId) : null;
     set({ activeSession: session || null, activeProject: project || null });
+  },
+  
+  setActiveProject: (projectId) => {
+    const project = get().projects.find(p => p.id === projectId);
+    set({ activeProject: project || null, activeSession: null });
   },
   
   setIntelligencePanelCollapsed: (collapsed) => set({ intelligencePanelCollapsed: collapsed }),

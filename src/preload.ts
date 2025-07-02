@@ -19,6 +19,30 @@ const snowfortAPI: SnowfortAPI = {
   deleteSession: (sessionId: string) =>
     ipcRenderer.invoke('db:deleteSession', sessionId),
 
+  // Task operations
+  getTasks: (projectId: string) =>
+    ipcRenderer.invoke('task:getTasks', projectId),
+  createTask: (projectId: string, title: string, body: string, options?: any) =>
+    ipcRenderer.invoke('task:createTask', projectId, title, body, options),
+  updateTask: (taskId: string, updates: any) =>
+    ipcRenderer.invoke('task:updateTask', taskId, updates),
+  deleteTask: (taskId: string) =>
+    ipcRenderer.invoke('task:deleteTask', taskId),
+
+  // Task planning operations
+  getTaskPlans: (projectId: string) =>
+    ipcRenderer.invoke('task:getTaskPlans', projectId),
+  createTaskPlan: (projectId: string, name: string, taskIds: string[]) =>
+    ipcRenderer.invoke('task:createTaskPlan', projectId, name, taskIds),
+  updateTaskPlan: (planId: string, updates: any) =>
+    ipcRenderer.invoke('task:updateTaskPlan', planId, updates),
+  analyzeTaskConflicts: (projectId: string, taskIds: string[]) =>
+    ipcRenderer.invoke('task:analyzeTaskConflicts', projectId, taskIds),
+
+  // GitHub integration
+  importGitHubIssues: (projectId: string, owner: string, repo: string) =>
+    ipcRenderer.invoke('task:importGitHubIssues', projectId, owner, repo),
+
   // File system operations
   selectDirectory: () => ipcRenderer.invoke('fs:selectDirectory'),
 

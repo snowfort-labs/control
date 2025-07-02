@@ -3,6 +3,7 @@ import { DatabaseService } from './services/database';
 import { writeFileSync } from 'fs';
 import { join } from 'path';
 import { platform } from 'os';
+import { TaskPlan, Task } from './types/engine';
 
 // Required node-pty import
 import * as pty from 'node-pty';
@@ -22,6 +23,127 @@ if (require('electron-squirrel-startup')) {
 // Initialize services
 let database: DatabaseService;
 const ptyProcesses: { [sessionId: string]: any } = {};
+
+// Enhanced Streaming Detection System
+interface SessionStreamState {
+  sessionId: string;
+  buffer: string[];           // Recent output chunks (last 50)
+  lastOutput: number;         // Timestamp of last output
+  outputFrequency: number[];  // Recent output intervals (last 10)
+  currentState: import('./types/engine').SessionStatus;
+  currentEngine: import('./types/engine').EngineType | null;
+  stateChanged: number;       // When state last changed
+  ansiSequences: string[];    // Recent ANSI sequences
+  userInput: boolean;         // Whether user recently sent input
+  lastUserInput: number;      // Timestamp of last user input
+  totalOutputLength: number;  // Track output volume
+  lastAnimation: number;      // Timestamp of last animation seen
+}
+
+interface ANSIAnalysis {
+  hasProgressBar: boolean;
+  hasCursorMovement: boolean;
+  hasColorChanges: boolean;
+  progressPercentage: number | null;
+  cleanText: string;
+  ansiCount: number;
+}
+
+// Session stream state management
+const sessionStates: { [sessionId: string]: SessionStreamState } = {};
+
+// Periodic state checker for animation timeouts
+setInterval(() => {
+  const now = Date.now();
+  for (const [sessionId, state] of Object.entries(sessionStates)) {
+    // Check if we're working but haven't seen animation for 1.5 seconds
+    if (state.currentState === 'working' && (now - state.lastAnimation) > 1500) {
+      console.log(`[SNOWFORT-TIMEOUT] Session ${sessionId} animation timeout - switching to ready`);
+      state.currentState = 'ready';
+      state.stateChanged = now;
+      updateSessionEngineWithState(sessionId, state.currentEngine, 'ready');
+    }
+  }
+}, 500); // Check every 500ms
+
+// Visual indicators only - ignore the changing text!
+const engineProcessingPatterns = {
+  // Claude Code: All bloom animation characters
+  claude: [
+    /[✻✳✢✽]/,                      // Bloom animation chars: ✻✳✢✽ (and potentially others)
+  ],
+  
+  // Gemini: Braille spinner characters
+  gemini: [
+    /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/,          // Any Braille spinner
+  ],
+  
+  // Codex: Bouncing dot between parentheses
+  codex: [
+    /│\([●\s]*●[●\s]*\)/,           // │(●) with dot anywhere between parens
+  ],
+};
+
+// Simple ANSI parser (kept for compatibility)
+function parseANSI(data: string): ANSIAnalysis {
+  const ansiRegex = /\x1b\[[0-9;]*[a-zA-Z]/g;
+  const ansiSequences = data.match(ansiRegex) || [];
+  
+  return {
+    hasProgressBar: false, // Not needed anymore
+    hasCursorMovement: /\x1b\[\d*[ABCD]/.test(data),
+    hasColorChanges: /\x1b\[[0-9;]*m/.test(data),
+    progressPercentage: null, // Not needed anymore
+    cleanText: data.replace(ansiRegex, ''),
+    ansiCount: ansiSequences.length
+  };
+}
+
+// Initialize session stream state
+function initSessionState(sessionId: string): SessionStreamState {
+  const now = Date.now();
+  return {
+    sessionId,
+    buffer: [],
+    lastOutput: now,
+    outputFrequency: [],
+    currentState: 'idle',
+    currentEngine: null,
+    stateChanged: now,
+    ansiSequences: [],
+    userInput: false,
+    lastUserInput: 0,
+    totalOutputLength: 0,
+    lastAnimation: 0
+  };
+}
+
+// Analyze output frequency to detect processing states
+function analyzeOutputFrequency(state: SessionStreamState): 'high' | 'normal' | 'low' | 'silent' {
+  const now = Date.now();
+  const timeSinceLastOutput = now - state.lastOutput;
+  
+  // Silent: No output for >2 seconds after user input
+  if (state.userInput && timeSinceLastOutput > 2000) {
+    return 'silent';
+  }
+  
+  // High frequency: Multiple outputs within 500ms
+  if (state.outputFrequency.length >= 3) {
+    const recentOutputs = state.outputFrequency.slice(-3);
+    const totalTime = recentOutputs.reduce((sum, interval) => sum + interval, 0);
+    if (totalTime < 500) {
+      return 'high';
+    }
+  }
+  
+  // Low frequency: Long gaps between outputs
+  if (timeSinceLastOutput > 1000) {
+    return 'low';
+  }
+  
+  return 'normal';
+}
 
 // Engine detection patterns
 const enginePatterns = {
@@ -45,106 +167,152 @@ const enginePatterns = {
   }
 };
 
-// Process terminal output for engine detection
+// Enhanced process terminal output with streaming detection
 function processTerminalOutput(sessionId: string, data: string): void {
-  const normalizedData = data.toLowerCase();
+  const now = Date.now();
   
-  // Debug: log all terminal output for troubleshooting
-  if (data.toLowerCase().includes('claude') || data.toLowerCase().includes('welcome')) {
-    console.log(`[SNOWFORT-DEBUG] Terminal output: "${data}"`);
+  // Initialize session state if not exists
+  if (!sessionStates[sessionId]) {
+    sessionStates[sessionId] = initSessionState(sessionId);
   }
   
-  // Enhanced command detection - look for various patterns
+  const state = sessionStates[sessionId];
+  
+  // Update timing data
+  const timeSinceLastOutput = now - state.lastOutput;
+  state.outputFrequency.push(timeSinceLastOutput);
+  if (state.outputFrequency.length > 10) {
+    state.outputFrequency.shift(); // Keep only last 10 intervals
+  }
+  state.lastOutput = now;
+  state.totalOutputLength += data.length;
+  
+  // Add to buffer (keep last 50 chunks)
+  state.buffer.push(data);
+  if (state.buffer.length > 50) {
+    state.buffer.shift();
+  }
+  
+  // Parse ANSI and analyze streaming patterns
+  const ansiAnalysis = parseANSI(data);
+  state.ansiSequences.push(...(data.match(/\x1b\[[0-9;]*[a-zA-Z]/g) || []));
+  if (state.ansiSequences.length > 20) {
+    state.ansiSequences = state.ansiSequences.slice(-20);
+  }
+  
+  // Analyze output frequency
+  const frequency = analyzeOutputFrequency(state);
+  
+  // Enhanced debug logging with streaming info
+  if (data.toLowerCase().includes('claude') || data.toLowerCase().includes('welcome') || ansiAnalysis.ansiCount > 0) {
+    console.log(`[SNOWFORT-STREAM] Session ${sessionId}: "${data}" [ANSI: ${ansiAnalysis.ansiCount}, Freq: ${frequency}, Progress: ${ansiAnalysis.progressPercentage}%]`);
+  }
+  
+  // Simple streaming state detection
+  const newState = determineStreamingState(state, data, ansiAnalysis, frequency);
+  if (newState && newState !== state.currentState) {
+    console.log(`[SNOWFORT-STREAM] State transition ${state.currentState} → ${newState} - Pattern matched!`);
+    state.currentState = newState;
+    state.stateChanged = now;
+    updateSessionEngineWithState(sessionId, state.currentEngine, newState);
+  }
+  
+  // Engine command detection (keep for initial engine detection)
   const commandPatterns = [
-    // Claude patterns
-    { regex: /(\$ )?claude(\s|$)/i, engine: 'claude-code' },
-    { regex: /claude[\s-]code/i, engine: 'claude-code' },
-    { regex: /claude\s+--/i, engine: 'claude-code' },
-    
-    // Gemini patterns  
-    { regex: /(\$ )?(gemini|aistudio)(\s|$)/i, engine: 'gemini' },
-    { regex: /(gemini|aistudio)\s+--/i, engine: 'gemini' },
-    
-    // Codex patterns
-    { regex: /(\$ )?codex(\s|$)/i, engine: 'codex' },
-    { regex: /codex\s+--/i, engine: 'codex' },
-    
-    // Alternative command patterns
-    { regex: /npx\s+@anthropic\/claude/i, engine: 'claude-code' },
-    { regex: /npx\s+.*gemini/i, engine: 'gemini' }
+    { regex: /(\$ )?claude(\s|$)/i, engine: 'claude' as const },
+    { regex: /claude[\s-]code/i, engine: 'claude' as const },
+    { regex: /(\$ )?(gemini|aistudio)(\s|$)/i, engine: 'gemini' as const },
+    { regex: /(\$ )?codex(\s|$)/i, engine: 'codex' as const },
   ];
   
   for (const pattern of commandPatterns) {
     if (pattern.regex.test(data)) {
       console.log(`[SNOWFORT-ENGINE] Detected ${pattern.engine} command: ${data.trim()}`);
-      updateSessionEngine(sessionId, pattern.engine, 'ready');
+      state.currentEngine = pattern.engine;
+      updateSessionEngineWithState(sessionId, pattern.engine, 'ready');
       return;
     }
   }
   
-  // Detect which engine is running
-  for (const [engineType, patterns] of Object.entries(enginePatterns)) {
-    // Check for engine start patterns
-    if (patterns.start.some(pattern => pattern.test(data))) {
-      updateSessionEngine(sessionId, engineType as any, 'ready');
-      return;
-    }
-    
-    // Check for working patterns
-    if (patterns.working.some(pattern => pattern.test(data))) {
-      updateSessionEngine(sessionId, engineType as any, 'working');
-      return;
-    }
-    
-    // Check for ready patterns
-    if (patterns.ready.some(pattern => pattern.test(data))) {
-      updateSessionEngine(sessionId, engineType as any, 'ready');
-      return;
-    }
-    
-    // Check for error patterns
-    if (patterns.error.some(pattern => pattern.test(data))) {
-      updateSessionEngine(sessionId, engineType as any, 'error');
-      return;
-    }
-  }
-  
-  // Check for specific engine exit patterns first
-  if (
-    // Claude Code exit patterns
-    /\/exit/i.test(data) ||
-    /Goodbye.*Claude/i.test(data) ||
-    // Gemini exit patterns  
-    /^quit$/i.test(data.trim()) ||
-    /Goodbye.*Gemini/i.test(data) ||
-    // Codex exit patterns
-    /^exit$/i.test(data.trim()) ||
-    /Goodbye.*Codex/i.test(data)
-  ) {
-    console.log(`[SNOWFORT-ENGINE] Detected engine exit command: ${data.trim()}`);
-    updateSessionEngine(sessionId, null, 'idle');
+  // Engine exit detection
+  if (/\/exit/i.test(data) || /Goodbye.*Claude/i.test(data) || 
+      /^quit$/i.test(data.trim()) || /Goodbye.*Gemini/i.test(data) ||
+      /^exit$/i.test(data.trim()) || /Goodbye.*Codex/i.test(data)) {
+    console.log(`[SNOWFORT-ENGINE] Engine exit: ${data.trim()}`);
+    state.currentEngine = null;
+    updateSessionEngineWithState(sessionId, null, 'idle');
     return;
   }
   
-  // Check for shell prompt return (engine finished)
-  if (
-    // Common shell prompt patterns
-    /^\s*[~$%>]\s+/.test(data) || 
-    /\n[~$%>]\s+$/.test(data) ||
-    data.endsWith('$ ') ||
-    data.endsWith('% ') ||
-    data.endsWith('> ') ||
-    // More specific patterns for conda/bash/zsh prompts
-    /\(\w+\)\s+[\w@.-]+\s+[\w-]+\s+%\s*$/.test(data.trim()) ||  // (base) user@host dir %
-    /\(\w+\)\s+[\w@.-]+\s+[\w-]+\s+%\s*/.test(data) ||         // (base) user@host dir % (anywhere in line)
-    /[\w@-]+:\s*[\w~/.-]+\s*[$%#]\s*$/.test(data.trim()) ||     // user@host:~/path $
-    /^[\w@-]+\s+[\w~/.-]+\s*[$%#]\s*$/.test(data.trim())        // user path $
-  ) {
-    console.log(`[SNOWFORT-ENGINE] Detected shell prompt, clearing engine for session ${sessionId}`);
-    // Small delay to ensure this runs after engine detection
+  // Shell prompt detection (engine finished)
+  const shellPromptPatterns = [
+    /^\s*[~$%>]\s+/, /\n[~$%>]\s+$/, 
+    /\(\w+\)\s+[\w@.-]+\s+[\w-]+\s+%\s*$/,
+    /[\w@-]+:\s*[\w~/.-]+\s*[$%#]\s*$/
+  ];
+  
+  if (shellPromptPatterns.some(pattern => pattern.test(data))) {
+    console.log(`[SNOWFORT-ENGINE] Shell prompt detected for session ${sessionId}`);
     setTimeout(() => {
-      updateSessionEngine(sessionId, null, 'idle');
+      state.currentEngine = null;
+      updateSessionEngineWithState(sessionId, null, 'idle');
     }, 200);
+  }
+}
+
+// Detect animation start - timeout handled by periodic timer
+function determineStreamingState(state: SessionStreamState, data: string, ansi: ANSIAnalysis, frequency: string): import('./types/engine').SessionStatus | null {
+  const now = Date.now();
+  
+  // Check if any engine animation is currently showing
+  const hasAnimation = 
+    engineProcessingPatterns.claude.some(pattern => pattern.test(data)) ||
+    engineProcessingPatterns.gemini.some(pattern => pattern.test(data)) ||
+    engineProcessingPatterns.codex.some(pattern => pattern.test(data));
+  
+  if (hasAnimation) {
+    // Mark that we saw animation recently
+    state.lastAnimation = now;
+    return 'working';
+  }
+  
+  // Timeout logic is handled by periodic timer - no need to check here
+  return null;
+}
+
+
+// Track user input to improve state detection
+function trackUserInput(sessionId: string): void {
+  if (!sessionStates[sessionId]) {
+    sessionStates[sessionId] = initSessionState(sessionId);
+  }
+  
+  const state = sessionStates[sessionId];
+  state.userInput = true;
+  state.lastUserInput = Date.now();
+  
+  // Reset user input flag after 30 seconds
+  setTimeout(() => {
+    if (sessionStates[sessionId]) {
+      sessionStates[sessionId].userInput = false;
+    }
+  }, 30000);
+}
+
+// Enhanced update function with state management
+async function updateSessionEngineWithState(sessionId: string, engineType: string | null, status: string): Promise<void> {
+  try {
+    const state = sessionStates[sessionId];
+    if (state) {
+      state.currentEngine = engineType as any;
+      state.currentState = status as any;
+      state.stateChanged = Date.now();
+    }
+    
+    // Call original update function
+    await updateSessionEngine(sessionId, engineType, status);
+  } catch (error) {
+    console.error(`Failed to update session ${sessionId}:`, error);
   }
 }
 
@@ -275,6 +443,62 @@ app.on('activate', () => {
   }
 });
 
+// Task Analysis and GitHub Integration Helper Functions
+async function analyzeTaskConflicts(projectId: string, taskIds: string[]): Promise<TaskPlan> {
+  try {
+    const tasks = database.getTasks(projectId);
+    const selectedTasks = tasks.filter(task => taskIds.includes(task.id));
+    
+    if (selectedTasks.length === 0) {
+      throw new Error('No tasks found for analysis');
+    }
+
+    // For now, create a basic plan structure
+    // TODO: Implement AI-powered conflict analysis
+    const plan = database.createTaskPlan(projectId, `Analysis Plan - ${new Date().toISOString()}`, taskIds);
+    
+    // Basic conflict analysis logic (to be replaced with AI analysis)
+    const phases = await performBasicConflictAnalysis(selectedTasks);
+    
+    return database.updateTaskPlan(plan.id, { phases });
+  } catch (error) {
+    console.error('Error analyzing task conflicts:', error);
+    throw error;
+  }
+}
+
+async function performBasicConflictAnalysis(tasks: Task[]): Promise<any[]> {
+  // This is a placeholder for AI-powered analysis
+  // For now, just group tasks into phases
+  return [
+    {
+      id: 'phase-1',
+      name: 'Phase 1 - Parallel Tasks',
+      order: 0,
+      parallelGroups: [
+        {
+          id: 'group-1',
+          taskIds: tasks.map(t => t.id),
+          conflictRisk: 25,
+          canRunInParallel: true
+        }
+      ]
+    }
+  ];
+}
+
+async function importGitHubIssues(projectId: string, owner: string, repo: string): Promise<Task[]> {
+  try {
+    // TODO: Implement GitHub API integration
+    // For now, return empty array
+    console.log(`Importing GitHub issues from ${owner}/${repo} for project ${projectId}`);
+    return [];
+  } catch (error) {
+    console.error('Error importing GitHub issues:', error);
+    throw error;
+  }
+}
+
 // IPC Handlers for communication between main and renderer processes
 function setupIpcHandlers() {
   // Database operations
@@ -291,6 +515,34 @@ function setupIpcHandlers() {
     database.updateSession(sessionId, updates));
   ipcMain.handle('db:deleteSession', (_, sessionId: string) => 
     database.deleteSession(sessionId));
+
+  // Task operations
+  ipcMain.handle('task:getTasks', (_, projectId: string) => 
+    database.getTasks(projectId));
+  ipcMain.handle('task:createTask', (_, projectId: string, title: string, body: string, options?: any) => 
+    database.createTask(projectId, title, body, options));
+  ipcMain.handle('task:updateTask', (_, taskId: string, updates: any) => 
+    database.updateTask(taskId, updates));
+  ipcMain.handle('task:deleteTask', (_, taskId: string) => 
+    database.deleteTask(taskId));
+
+  // Task planning operations
+  ipcMain.handle('task:getTaskPlans', (_, projectId: string) => 
+    database.getTaskPlans(projectId));
+  ipcMain.handle('task:createTaskPlan', (_, projectId: string, name: string, taskIds: string[]) => 
+    database.createTaskPlan(projectId, name, taskIds));
+  ipcMain.handle('task:updateTaskPlan', (_, planId: string, updates: any) => 
+    database.updateTaskPlan(planId, updates));
+  ipcMain.handle('task:analyzeTaskConflicts', async (_, projectId: string, taskIds: string[]) => {
+    // This will be implemented with AI analysis
+    return analyzeTaskConflicts(projectId, taskIds);
+  });
+
+  // GitHub integration
+  ipcMain.handle('task:importGitHubIssues', async (_, projectId: string, owner: string, repo: string) => {
+    // This will be implemented with GitHub API
+    return importGitHubIssues(projectId, owner, repo);
+  });
 
   // File system operations
   ipcMain.handle('fs:selectDirectory', async () => {
@@ -361,7 +613,11 @@ function setupIpcHandlers() {
     const ptyProcess = ptyProcesses[sessionId];
     if (ptyProcess) {
       try {
+        // Track user input for enhanced state detection
+        trackUserInput(sessionId);
+        
         ptyProcess.write(data);
+        console.log(`[SNOWFORT-STREAM] User input tracked for session ${sessionId}`);
       } catch (error) {
         console.error(`[SNOWFORT-PTY] Error writing to PTY ${sessionId}:`, error);
         updateSessionEngine(sessionId, null, 'error');

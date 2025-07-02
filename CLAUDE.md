@@ -144,5 +144,20 @@ pkill -f "electron-forge" && sleep 2 && pkill -9 -f "electron" 2>/dev/null || tr
 ps aux | grep -E "(Snowfort|electron)" | grep -v grep
 ```
 
-**Interactive Testing:**
-The Electron app enables you to interact with it via MCP tools such as `circuit-electron`, if they are available. The webpack dev server runs on `http://localhost:9000` for build monitoring only - the React app runs inside Electron and isn't directly web-accessible.
+## Interactive Testing via MCP
+The Electron app supports interaction via circuit-electron MCP tools.
+
+Efficient Usage
+- Launch with includeSnapshots: false to reduce token usage by ~90%
+- Use mcp__circuit-electron__smart_click instead of click - handles refs (e1, e2), tex ("Login", "Submit"), and selectors automatically
+- Request snapshots sparingly: snapshot(filter: 'interactive') for debugging only
+- Prefer snapshots and use screenshots only for visual-centric tasks
+- Use mcp__circuit-electron__keyboard_type for all text input - DO NOT use input.value via JavaScript
+
+Workflow Pattern
+1. launch(app, {includeSnapshots: false})
+2. smart_click("Login") 
+3. keyboard_type("username")
+4. smart_click("Submit")
+5. snapshot() // only when needed
+

@@ -10,7 +10,7 @@ interface ProjectPanelProps {
 }
 
 export const ProjectPanel: React.FC<ProjectPanelProps> = ({ collapsed, onToggleCollapse }) => {
-  const { projects, sessions, organizations, activeSession, setActiveSession, setShowOnboarding, loadData } = useAppStore();
+  const { projects, sessions, organizations, activeSession, setActiveSession, setActiveProject, setShowOnboarding, loadData } = useAppStore();
   const [editingSession, setEditingSession] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<string | null>(null);
   const [sessionName, setSessionName] = useState('');
@@ -217,7 +217,9 @@ export const ProjectPanel: React.FC<ProjectPanelProps> = ({ collapsed, onToggleC
                   <div key={project.id}>
                     <div 
                       className={`project-item ${editingProject === project.id ? 'editing' : ''}`}
-                      onDoubleClick={() => {
+                      onClick={() => setActiveProject(project.id)}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
                         setEditingProject(project.id);
                         setProjectName(project.name);
                       }}
@@ -381,7 +383,9 @@ export const ProjectPanel: React.FC<ProjectPanelProps> = ({ collapsed, onToggleC
             <div key={project.id}>
               <div 
                 className={`project-item ${editingProject === project.id ? 'editing' : ''}`}
-                onDoubleClick={() => {
+                onClick={() => setActiveProject(project.id)}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
                   setEditingProject(project.id);
                   setProjectName(project.name);
                 }}

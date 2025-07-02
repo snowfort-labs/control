@@ -1,10 +1,17 @@
 import React from 'react';
 import { useAppStore } from '../store/appStore';
 import { TerminalComponent } from './Terminal';
+import { ProjectView } from './ProjectView';
 
 export const TerminalPanel: React.FC = () => {
   const { activeSession, activeProject } = useAppStore();
 
+  // Show project view if project is selected but no session
+  if (activeProject && !activeSession) {
+    return <ProjectView project={activeProject} />;
+  }
+
+  // Show empty state if neither project nor session is selected
   if (!activeSession || !activeProject) {
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
