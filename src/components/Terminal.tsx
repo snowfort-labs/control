@@ -1,7 +1,42 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
+
+// Utility function to get terminal theme from CSS variables
+const getTerminalTheme = () => {
+  const computedStyle = getComputedStyle(document.documentElement);
+  const getCSSVar = (name: string) => computedStyle.getPropertyValue(name).trim();
+  
+  return {
+    background: getCSSVar('--bg-primary'),
+    foreground: getCSSVar('--text-primary'),
+    cursor: getCSSVar('--accent-color'),
+    cursorAccent: getCSSVar('--bg-primary'), // Cursor text color when using block cursor
+    selection: getCSSVar('--accent-color') + '30', // Add transparency
+    selectionForeground: getCSSVar('--bg-primary'),
+    
+    // Map application colors to ANSI colors
+    black: getCSSVar('--text-primary'),
+    red: getCSSVar('--error-red'),
+    green: getCSSVar('--success-green'),
+    yellow: getCSSVar('--warning-yellow'),
+    blue: getCSSVar('--accent-blue'),
+    magenta: getCSSVar('--accent-color'),
+    cyan: getCSSVar('--success-green'),
+    white: getCSSVar('--text-secondary'),
+    
+    // Bright colors - slightly more vibrant versions
+    brightBlack: getCSSVar('--text-muted'),
+    brightRed: getCSSVar('--error-red'),
+    brightGreen: getCSSVar('--success-green'),
+    brightYellow: getCSSVar('--warning-yellow'),
+    brightBlue: getCSSVar('--accent-blue'),
+    brightMagenta: getCSSVar('--accent-color'),
+    brightCyan: getCSSVar('--success-green'),
+    brightWhite: getCSSVar('--text-primary'),
+  };
+};
 import { Session } from '../types/engine';
 
 interface TerminalProps {
@@ -32,7 +67,13 @@ export const TerminalComponent: React.FC<TerminalProps> = ({ session, projectPat
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const [isInitialized, setIsInitialized] = useState(false);
+  
+  // Theme change handler
+  const updateTerminalTheme = () => {
+    if (xtermRef.current) {
+      xtermRef.current.options.theme = getTerminalTheme();
+    }
+  };
 
   useEffect(() => {
     if (!terminalRef.current) return;
@@ -41,12 +82,7 @@ export const TerminalComponent: React.FC<TerminalProps> = ({ session, projectPat
       cursorBlink: true,
       fontSize: 14,
       fontFamily: '"SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New", monospace',
-      theme: {
-        background: '#000000',
-        foreground: '#10b981', // Snowfort green
-        cursor: '#10b981',
-        selectionBackground: 'rgba(255, 255, 255, 0.3)',
-      },
+      theme: getTerminalTheme(),
     });
 
     const fitAddon = new FitAddon();
@@ -130,10 +166,24 @@ export const TerminalComponent: React.FC<TerminalProps> = ({ session, projectPat
     // Initial resize
     handleResize();
 
-    setIsInitialized(true);
+    // Listen for theme changes
+    const themeObserver = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'data-theme') {
+          updateTerminalTheme();
+        }
+      });
+    });
+    
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme']
+    });
+
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      themeObserver.disconnect();
       // Store current terminal buffer before cleanup
       if (term && terminalBuffers.has(sessionId)) {
         // Buffer is already stored via onPtyData handler
@@ -142,7 +192,6 @@ export const TerminalComponent: React.FC<TerminalProps> = ({ session, projectPat
       // Only remove listeners for this specific terminal instance
       window.snowfortAPI.removePtyListeners(sessionId);
       term.dispose();
-      setIsInitialized(false);
     };
   }, [sessionId, projectPath, engineType]);
 
