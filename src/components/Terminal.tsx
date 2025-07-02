@@ -2,9 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
+import { Session } from '../types/engine';
 
 interface TerminalProps {
-  sessionId: string;
+  session: Session;
   projectPath: string;
   engineType?: string;
   onStateChange?: (state: { status: string; message?: string }) => void;
@@ -26,7 +27,8 @@ export const clearTerminalBuffer = (sessionId: string) => {
   terminalBuffers.delete(sessionId);
 };
 
-export const TerminalComponent: React.FC<TerminalProps> = ({ sessionId, projectPath, engineType }) => {
+export const TerminalComponent: React.FC<TerminalProps> = ({ session, projectPath, engineType }) => {
+  const sessionId = session.id;
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -61,6 +63,15 @@ export const TerminalComponent: React.FC<TerminalProps> = ({ sessionId, projectP
       const exists = await window.snowfortAPI.ptyExists(sessionId);
       if (!exists) {
         window.snowfortAPI.startPty(sessionId, projectPath);
+        
+        // Execute initial command if provided
+        const initialCommand = session.config?.initialCommand;
+        if (initialCommand) {
+          // Wait a bit for the shell to initialize before sending the command
+          setTimeout(() => {
+            window.snowfortAPI.writePty(sessionId, initialCommand + '\r');
+          }, 1000);
+        }
       }
     };
     

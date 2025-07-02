@@ -48,7 +48,7 @@ export const TerminalPanel: React.FC = () => {
       </div>
       
       <TerminalComponent
-        sessionId={activeSession.id}
+        session={activeSession}
         engineType={activeSession.engineType}
         projectPath={activeProject.path}
         onStateChange={() => {

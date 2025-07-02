@@ -286,16 +286,22 @@ export class DatabaseService {
   }
 
   // Sessions
-  createSession(projectId: string, name: string, engineType?: string, config: any = {}): Session {
+  createSession(projectId: string, name: string, engineType?: string, initialCommand?: string, config: any = {}): Session {
     const id = this.generateId();
     const orderIndex = this.getNextOrderIndex('sessions', 'project_id = ?', projectId);
+    
+    // Add initial command to config if provided
+    const sessionConfig = { ...config };
+    if (initialCommand) {
+      sessionConfig.initialCommand = initialCommand;
+    }
     
     const stmt = this.db.prepare(`
       INSERT INTO sessions (id, project_id, name, engine_type, config, order_index)
       VALUES (?, ?, ?, ?, ?, ?)
     `);
     
-    stmt.run(id, projectId, name, engineType || null, JSON.stringify(config), orderIndex);
+    stmt.run(id, projectId, name, engineType || null, JSON.stringify(sessionConfig), orderIndex);
     
     return {
       id,
@@ -303,7 +309,7 @@ export class DatabaseService {
       name,
       engineType: engineType as any,
       status: 'idle',
-      config,
+      config: sessionConfig,
       orderIndex,
       createdAt: new Date().toISOString(),
       lastActive: new Date().toISOString()

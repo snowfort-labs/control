@@ -8,7 +8,7 @@ export interface SnowfortAPI {
   getOrganizations(): Promise<Organization[]>;
   getSessions(projectId?: string): Promise<Session[]>;
   createProject(name: string, path: string, organizationId?: string): Promise<Project>;
-  createSession(projectId: string, name: string, engineType?: EngineType): Promise<Session>;
+  createSession(projectId: string, name: string, engineType?: EngineType, initialCommand?: string): Promise<Session>;
   updateProject(projectId: string, updates: Partial<Project>): Promise<Project>;
   updateSession(sessionId: string, updates: Partial<Session>): Promise<Session>;
   deleteSession(sessionId: string): Promise<void>;

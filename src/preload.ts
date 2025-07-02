@@ -10,8 +10,8 @@ const snowfortAPI: SnowfortAPI = {
   getSessions: (projectId?: string) => ipcRenderer.invoke('db:getSessions', projectId),
   createProject: (name: string, path: string, organizationId?: string) => 
     ipcRenderer.invoke('db:createProject', name, path, organizationId),
-  createSession: (projectId: string, name: string, engineType?: import('./types/engine').EngineType) =>
-    ipcRenderer.invoke('db:createSession', projectId, name, engineType),
+  createSession: (projectId: string, name: string, engineType?: import('./types/engine').EngineType, initialCommand?: string) =>
+    ipcRenderer.invoke('db:createSession', projectId, name, engineType, initialCommand),
   updateProject: (projectId: string, updates: any) =>
     ipcRenderer.invoke('db:updateProject', projectId, updates),
   updateSession: (sessionId: string, updates: any) =>

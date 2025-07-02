@@ -28,163 +28,33 @@ node --version  # Should show v22.x.x
 **TypeScript Compilation:**
 The project uses webpack with ts-loader for compilation. TypeScript errors are checked in real-time during development via ForkTsCheckerWebpackPlugin.
 
-**MCP Electron Testing:**
-For automated testing with circuit-electron MCP:
-```bash
-# Step 1: In terminal, start your dev server first
-npm run start
+**Real PTY Terminal Integration:**
+Snowfort uses `node-pty` for true terminal functionality with real shell processes, cross-platform support, and proper ANSI handling. PTY processes are managed in the main process with real-time bidirectional communication to xterm.js.
 
-# Step 2: Once webpack compiles, use the MCP to launch
-await app_launch({
-  "app": "/Users/colin/data/control",
-  "mode": "development"
-})
-```
-
-**MCP Testing Best Practices:**
-
-1. **Use MCP-Optimized Scripts:**
-   ```bash
-   # Regular development (no DevTools - clean interface)
-   npm run start
-   
-   # Development with DevTools (for debugging)
-   npm run start:devtools
-   
-   # Optimized for MCP testing (no DevTools, MCP mode enabled)
-   npm run start:mcp
-   ```
-
-2. **Enhanced Startup Detection:**
-   The MCP now has improved Electron Forge detection with 30s timeout and progress updates every 5 seconds. Use `startScript` for reliable auto-start:
-   ```bash
-   # Clean process management (if needed)
-   pkill -f "electron" && pkill -f "snowfort"
-   
-   # MCP will handle startup automatically
-   await app_launch({
-     "app": "/path/to/project",
-     "mode": "development", 
-     "startScript": "start:mcp"
-   })
-   ```
-
-3. **Startup Detection:**
-   Look for these log patterns to confirm readiness:
-   - `[SNOWFORT-DEBUG] Remote debugging enabled` - Playwright ready
-   - `[SNOWFORT-STARTUP] Detecting available engines` - Initialization started
-   - `[SNOWFORT-ENGINES] {"claude":"available"...}` - Engines detected
-   - `[SNOWFORT-READY] App initialized successfully` - Fully ready
-
-4. **State File Verification:**
-   Check the startup state file for programmatic detection:
-   ```bash
-   cat ~/Library/Application\ Support/Snowfort/startup-state.json
-   ```
-   Contains: `ready`, `timestamp`, `engines`, `pid`, `version`
-
-5. **Expected Startup Sequence:**
-   - Webpack compilation: ~5-10 seconds
-   - Electron launch: ~2-3 seconds  
-   - Engine detection: ~1-2 seconds
-   - Look for: `[SNOWFORT-READY]` message
-
-6. **Automatic Window Management:**
-   DevTools filtering is now automatic - the MCP always targets the main app window. Use `get_windows()` to see all available windows with types:
-   ```javascript
-   // Returns structured window data
-   // [
-   //   {id: "window-0", type: "main", title: "Snowfort - AI Agent..."},
-   //   {id: "window-1", type: "devtools", title: "DevTools"}
-   // ]
-   ```
-
-7. **Environment Variables:**
-   - `ELECTRON_DISABLE_DEVTOOLS=true` - Prevents DevTools opening
-   - `SNOWFORT_MCP_MODE=true` - Optimizes for automated testing
-   - `NODE_ENV=development` - Ensures development features
-
-8. **Real PTY Terminal Integration:**
-   Snowfort now uses `node-pty` for true terminal functionality:
-   
-   **Features Implemented:**
-   - ✅ Real shell processes (zsh/bash/powershell)
-   - ✅ Cross-platform support (macOS, Linux, Windows)
-   - ✅ Proper ANSI escape sequence handling
-   - ✅ Terminal resizing and cleanup
-   - ✅ Claude Code CLI integration
-   - ✅ All shell commands work (`ls`, `claude`, `npm`, etc.)
-   
-   **Implementation Details:**
-   - PTY processes managed in main process (`src/index.ts:184-234`)
-   - Real-time bidirectional communication (PTY ↔ xterm.js)
-   - Platform-specific shell detection and PATH setup
-   - Session-based PTY process management
-   
-   **Build Requirements:**
-   With Node.js 22 LTS, native modules use prebuilt binaries in most cases. Build tools are only needed for custom configurations or older systems:
-   
-   ```bash
-   # Only if prebuilt binaries fail (rare with Node.js 22)
-   # macOS: xcode-select --install
-   # Linux: sudo apt-get install build-essential python3-dev
-   # Windows: Visual Studio Build Tools
-   
-   # Standard installation (works with Node.js 22)
-   npm install
-   ```
-
-9. **Terminal Input Interaction (Legacy - for old MCP testing):**
-   When using MCP to interact with the terminal input field in Snowfort:
-   ```javascript
-   // CORRECT: Use click_by_role to focus the terminal input
-   await click_by_role({
-     "sessionId": "session-id",
-     "role": "textbox",
-     "name": "Terminal input"
-   });
-   
-   // Then type using keyboard_type
-   await keyboard_type({
-     "sessionId": "session-id", 
-     "text": "your command here"
-   });
-   
-   // Send the command with Enter
-   await keyboard_press({
-     "sessionId": "session-id",
-     "key": "Enter"
-   });
-   ```
-   
-   **Don't use these approaches (they don't work):**
-   - `type()` with CSS selectors - fails to find the element
-   - `click()` with CSS selectors - timeouts on element location
-   - Direct selector references like `[ref="e21"]` - not reliable
-   
-   **The working pattern is:** `click_by_role` → `keyboard_type` → `keyboard_press`
+**Build Requirements:**
+With Node.js 22 LTS, `npm install` works directly. Build tools are only needed if prebuilt binaries fail.
 
 ## Project Architecture
 
-**Snowfort Desktop** is an AI Agent Orchestration Platform built with Electron, React, and TypeScript. It provides a desktop interface for managing multiple AI agents (Claude Code, Gemini CLI, OpenAI Codex CLI) through managed terminal sessions. These agents act as the "engine" of the Snowfort app, providing it the ability to run its own LLM-based workflows.
+**Snowfort Desktop** is an AI Engine Orchestration Platform built with Electron, React, and TypeScript. It provides a desktop interface for managing multiple AI engines (Claude Code, Gemini CLI, OpenAI Codex CLI) through managed terminal sessions.
 
 ### Core Architecture Patterns
 
 **1. Electron IPC Communication:**
-- Main process (`src/index.ts`) handles system operations, database, and agent management
+- Main process (`src/index.ts`) handles system operations, database, and engine management
 - Renderer process (`src/renderer.tsx`) runs the React UI
 - Secure IPC via `src/preload.ts` exposes `window.snowfortAPI` with type-safe methods
 - All IPC methods defined in `src/types/ipc.ts` - must implement both main handler and preload exposure
 
 **2. Three-Panel UI Layout:**
 - **Projects Panel** (left): Project/session management with collapsible sidebar
-- **Terminal Panel** (center): xterm.js-based terminal interface for agent interaction  
+- **Terminal Panel** (center): xterm.js-based terminal interface for engine interaction  
 - **Intelligence Panel** (right): Analytics, metrics, and control insights
 
-**3. Agent Management System:**
+**3. Engine Management System:**
 - `AgentDetector` (`src/services/agent-detector.ts`): Detects CLI availability and auth status
-- `AgentManager` (`src/services/agent-manager.ts`): Spawns and manages agent processes
-- Supports three agent types: `gemini` | `claude` | `codex` with different auth methods
+- `AgentManager` (`src/services/agent-manager.ts`): Spawns and manages engine processes
+- Supports: `gemini` | `claude` | `codex` engines with different auth methods
 
 **4. Database Layer:**
 - SQLite via better-sqlite3 for local data persistence
@@ -198,27 +68,25 @@ await app_launch({
 
 ### Key Implementation Details
 
-**Agent Integration:**
-Each agent has a configuration object defining:
+**Engine Integration:**
+Each engine has a configuration object defining:
 - `executable`: Command to run (e.g., 'claude-code', 'npx', 'codex')
 - `detectCommand`: Command to test availability
-- `statePatterns`: Regex patterns to detect agent states from terminal output
+- `statePatterns`: Regex patterns to detect engine states from terminal output
 - `authMethod`: Authentication type (oauth, api-key, google-login)
 
 **Terminal Management:**
-- Uses xterm.js with @xterm/addon-fit for responsive terminal rendering
-- ManagedSession interface wraps child processes with state tracking
-- Terminal state parsing via regex patterns to detect ready/working/error states
+Uses xterm.js with @xterm/addon-fit for responsive rendering. ManagedSession interface wraps child processes with state tracking via regex patterns.
 
 **Project Onboarding Flow:**
 1. Path selection (manual input or native directory picker via `fs:selectDirectory`)
-2. Agent selection based on availability detection
+2. Engine selection based on availability detection
 3. Project creation with initial session setup
-4. Agent process spawning and terminal initialization
+4. Engine process spawning and terminal initialization
 
 **Type Safety Notes:**
 - All IPC communication is strongly typed via the SnowfortAPI interface
-- Agent types and configurations centralized in `src/types/agent.ts`
+- Engine types and configurations centralized in `src/types/engine.ts`
 - better-sqlite3 requires type workarounds: use `@ts-ignore` and `as any` casting
 
 **Critical Dependencies:**
@@ -236,130 +104,45 @@ Each agent has a configuration object defining:
 4. Use from React via `window.snowfortAPI.methodName()`
 
 **Database Schema Changes:**
-Modify `initializeSchema()` in `src/services/database.ts`. The app handles schema migration via SQLite's `CREATE TABLE IF NOT EXISTS` pattern.
+Modify `initializeSchema()` in `src/services/database.ts`. Note: `CREATE TABLE IF NOT EXISTS` only handles table creation, not schema migrations.
 
-**Agent Configuration:**
-Agent configs are defined in `AgentDetector.getAgentConfigs()`. Each agent needs detection commands, state patterns, and authentication handling.
-
-**Engine Integration:**
-Engine components must use xterm.js consistently and handle the async nature of engine process startup and state detection.
-
-**Engine State Detection:**
-Snowfort automatically detects engine states by parsing their terminal output:
-- **Pattern-based detection**: Each engine has specific output patterns for ready/working/error/completed states
-- **Real-time parsing**: Output is analyzed as it streams to update UI indicators
-- **State transitions**: Proper flow from idle → ready → working → completed/error → ready
-- **Fallback handling**: Timeout-based fallback to 'ready' if no patterns detected
-
-Engine configurations include:
-- `statePatterns.ready`: Patterns indicating engine is waiting for input
-- `statePatterns.working`: Patterns indicating engine is processing
-- `statePatterns.error`: Patterns indicating engine encountered an error  
-- `statePatterns.completed`: Patterns indicating engine finished a task
-
-State detection implementation in `src/services/engine-manager.ts`:
-- Normalized pattern matching (case-insensitive)
-- Priority-based detection (error > completed > working > ready)
-- Logging for debugging state transitions
-- Prevention of redundant state changes
+**Engine Configuration:**
+Engine configs in `AgentDetector.getAgentConfigs()` define detection commands, state patterns, and authentication. State detection parses terminal output in real-time with priority-based pattern matching (error > completed > working > ready).
 
 ## Testing and Verification
 
 **Starting the App:**
-1. `npm run start` - Starts Electron app with webpack dev server
-2. The webpack dev server runs on `http://localhost:9000` for build monitoring only
-3. The actual Snowfort app opens as a separate desktop Electron window (not web-accessible)
-
-**Verifying App is Running:**
 ```bash
-# Check if Electron processes are running
-ps aux | grep -E "(electron|snowfort)" | grep -v grep
+# Start in foreground (blocks terminal)
+npm run start
 
-# Check if database is created
-ls -la ~/Library/Application\ Support/Snowfort/snowfort.db
-
-# Check webpack compilation status
-tail -10 snowfort-app.log  # Look for "No errors found"
-```
-
-**Clean Restart Process:**
-```bash
-# Kill all Electron processes
-pkill -f "electron" && pkill -f "snowfort"
-
-# Free webpack dev server port if needed
-lsof -ti:9000 | xargs kill -9 2>/dev/null || true
-
-# Start fresh
+# Start in background (recommended for testing)
 npm run start > snowfort-app.log 2>&1 &
+
+# Wait for startup (look for "SNOWFORT-READY" in logs)
+tail -f snowfort-app.log | grep -m 1 "SNOWFORT-READY"
 ```
 
-**Playwright MCP Testing:**
+**Verifying App Status:**
+```bash
+# Check if processes are running
+ps aux | grep -E "(Snowfort|electron)" | grep -v grep
 
-The Electron renderer process can be tested directly with Playwright MCP tools during development.
-
-**Setup Process:**
-1. Start the app: `npm run start`
-2. Wait for compilation: Look for "No errors found" in webpack output
-3. Navigate to: `http://localhost:3000/main_window`
-4. Use Playwright MCP tools to interact with the UI
-
-**What CAN be tested:**
-- ✅ **React component rendering** - All UI elements, layouts, and visual components
-- ✅ **User interactions** - Button clicks, form inputs, navigation flows
-- ✅ **State management** - Component state changes and UI updates
-- ✅ **Responsive design** - Layout behavior at different screen sizes
-- ✅ **Styling and animations** - CSS behavior and visual effects
-- ✅ **Frontend routing** - Navigation between different UI states
-- ✅ **Error boundaries** - React error handling and display
-- ✅ **Component integration** - How different UI components work together
-
-**What CANNOT be tested:**
-- ❌ **IPC communication** - `window.snowfortAPI` calls fail (browser vs Electron context)
-- ❌ **File system operations** - Directory selection, file operations
-- ❌ **Database operations** - Project/session creation, data persistence
-- ❌ **Agent management** - CLI agent spawning, process communication
-- ❌ **Terminal integration** - Real agent process interaction (xterm.js will render but won't connect)
-- ❌ **Native Electron features** - Window management, system integration
-
-**Expected Behaviors in Browser Context:**
-- **IPC errors are normal** - Components will show error overlays when trying to call `window.snowfortAPI`
-- **Mock data may be needed** - For testing components that depend on database/agent data
-- **Terminal appears but doesn't function** - xterm.js renders but can't connect to real processes
-- **File dialogs won't work** - Directory selection will fail gracefully
-
-**Testing Examples:**
-```javascript
-// Navigate to app
-await page.goto('http://localhost:3000/main_window');
-
-// Test UI interactions
-await page.click('text=Add Project');  // Triggers onboarding flow
-await page.click('text=Dark');         // Toggle dark mode
-await page.fill('input[placeholder*="project"]', 'Test Project');
-
-// Verify UI state
-expect(await page.textContent('h1')).toBe('Snowfort');
-expect(await page.isVisible('text=Projects & Sessions')).toBe(true);
-
-// Test responsive design
-await page.setViewportSize({ width: 800, height: 600 });
+# Check startup logs
+tail -20 snowfort-app.log
 ```
 
-**Debugging Tips:**
-- Use browser DevTools to inspect React components and state
-- Check console for expected IPC errors vs unexpected JavaScript errors
-- Use Playwright MCP screenshot tool to capture UI states
-- Test with different viewport sizes to verify responsive behavior
+**Stopping the App:**
+```bash
+# Graceful shutdown (try first)
+pkill -f "electron-forge"
 
-**Verification Checklist:**
-- ✅ TypeScript compilation: "No errors found" in webpack output
-- ✅ Electron processes: Multiple Electron processes running 
-- ✅ Database: `snowfort.db` exists in userData directory
-- ✅ Window: Snowfort app window visible on desktop (manual check)
+# Force kill if needed (wait 2 seconds then force)
+pkill -f "electron-forge" && sleep 2 && pkill -9 -f "electron" 2>/dev/null || true
 
-**Common Issues:**
-- Port 9000 in use: Kill existing processes and restart
-- TypeScript errors: Check imports, especially `AgentType` vs string types
-- Database errors: Check `better-sqlite3` constructor pattern: `(Database as any)(path)`
-- Window not opening: Check main process logs for errors in `src/index.ts`
+# Verify processes stopped
+ps aux | grep -E "(Snowfort|electron)" | grep -v grep
+```
+
+**Interactive Testing:**
+The Electron app enables you to interact with it via MCP tools such as `circuit-electron`, if they are available. The webpack dev server runs on `http://localhost:9000` for build monitoring only - the React app runs inside Electron and isn't directly web-accessible.

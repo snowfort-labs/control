@@ -283,8 +283,8 @@ function setupIpcHandlers() {
   ipcMain.handle('db:getSessions', (_, projectId?: string) => database.getSessions(projectId));
   ipcMain.handle('db:createProject', (_, name: string, path: string, orgId?: string) => 
     database.createProject(name, path, orgId));
-  ipcMain.handle('db:createSession', (_, projectId: string, name: string, engineType?: string) => 
-    database.createSession(projectId, name, engineType as any));
+  ipcMain.handle('db:createSession', (_, projectId: string, name: string, engineType?: string, initialCommand?: string) => 
+    database.createSession(projectId, name, engineType as any, initialCommand));
   ipcMain.handle('db:updateProject', (_, projectId: string, updates: any) => 
     database.updateProject(projectId, updates));
   ipcMain.handle('db:updateSession', (_, sessionId: string, updates: any) => 

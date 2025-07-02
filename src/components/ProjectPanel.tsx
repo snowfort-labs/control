@@ -10,21 +10,23 @@ interface ProjectPanelProps {
 }
 
 export const ProjectPanel: React.FC<ProjectPanelProps> = ({ collapsed, onToggleCollapse }) => {
-  const { projects, sessions, organizations, activeSession, setActiveSession, setShowOnboarding, loadData, createSession } = useAppStore();
+  const { projects, sessions, organizations, activeSession, setActiveSession, setShowOnboarding, loadData } = useAppStore();
   const [editingSession, setEditingSession] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<string | null>(null);
   const [sessionName, setSessionName] = useState('');
   const [projectName, setProjectName] = useState('');
   const [openMenuProject, setOpenMenuProject] = useState<string | null>(null);
   const [openMenuSession, setOpenMenuSession] = useState<string | null>(null);
-  const [addingSessionToProject, setAddingSessionToProject] = useState<string | null>(null);
+  const [sessionCommand, setSessionCommand] = useState('');
+  const [isCommandMode, setIsCommandMode] = useState<string | null>(null);
 
   // Close menus when clicking outside
   useEffect(() => {
     const handleClickOutside = () => {
       setOpenMenuProject(null);
       setOpenMenuSession(null);
-      setAddingSessionToProject(null);
+      setIsCommandMode(null);
+      setSessionCommand('');
     };
 
     document.addEventListener('click', handleClickOutside);
@@ -99,17 +101,21 @@ export const ProjectPanel: React.FC<ProjectPanelProps> = ({ collapsed, onToggleC
     }
   };
 
-  const handleCreateSession = async (projectId: string) => {
+  const handleCreateSession = async (projectId: string, command?: string) => {
     try {
       // Get existing sessions for this project to generate the next session number
       const projectSessions = getSessionsForProject(projectId);
       const sessionNumber = projectSessions.length + 1;
-      const sessionName = `Session ${sessionNumber}`;
+      const sessionName = command ? `Session ${sessionNumber} - ${command.split(' ')[0]}` : `Session ${sessionNumber}`;
       
       // Create session with generic name and no specific engine type
-      const session = await window.snowfortAPI.createSession(projectId, sessionName);
+      const session = await window.snowfortAPI.createSession(projectId, sessionName, undefined, command);
       await loadData(); // Refresh data from database
-      setAddingSessionToProject(null);
+      setIsCommandMode(null);
+      setSessionCommand('');
+      
+      // Set the new session as active
+      setActiveSession(session.id);
     } catch (error) {
       console.error('Failed to create session:', error);
     }
@@ -216,7 +222,7 @@ export const ProjectPanel: React.FC<ProjectPanelProps> = ({ collapsed, onToggleC
                         setProjectName(project.name);
                       }}
                     >
-                      <span className="project-icon">▪</span>
+                      <span className="project-icon">●</span>
                       {editingProject === project.id ? (
                         <input
                           className="editable-name"
@@ -324,16 +330,45 @@ export const ProjectPanel: React.FC<ProjectPanelProps> = ({ collapsed, onToggleC
                     
                     {/* Add Session Button */}
                     <div className="add-session-container">
-                      <button 
-                        className="add-session-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleCreateSession(project.id);
-                        }}
-                      >
-                        <span className="add-session-icon">+</span>
-                        <span>Add Session</span>
-                      </button>
+                      {isCommandMode === project.id ? (
+                        <div className="add-session-input-container" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            className="add-session-input"
+                            value={sessionCommand}
+                            onChange={(e) => setSessionCommand(e.target.value)}
+                            placeholder="Enter command (optional)"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleCreateSession(project.id, sessionCommand.trim() || undefined);
+                              } else if (e.key === 'Escape') {
+                                setIsCommandMode(null);
+                                setSessionCommand('');
+                              }
+                            }}
+                            autoFocus
+                          />
+                          <button 
+                            className="add-session-confirm-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCreateSession(project.id, sessionCommand.trim() || undefined);
+                            }}
+                          >
+                            <span className="add-session-icon">+</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <button 
+                          className="add-session-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIsCommandMode(project.id);
+                          }}
+                        >
+                          <span className="add-session-icon">+</span>
+                          <span>Add Session</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -351,7 +386,7 @@ export const ProjectPanel: React.FC<ProjectPanelProps> = ({ collapsed, onToggleC
                   setProjectName(project.name);
                 }}
               >
-                <span className="project-icon">▪</span>
+                <span className="project-icon">●</span>
                 {editingProject === project.id ? (
                   <input
                     className="editable-name"
@@ -459,16 +494,45 @@ export const ProjectPanel: React.FC<ProjectPanelProps> = ({ collapsed, onToggleC
               
               {/* Add Session Button */}
               <div className="add-session-container">
-                <button 
-                  className="add-session-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleCreateSession(project.id);
-                  }}
-                >
-                  <span className="add-session-icon">+</span>
-                  <span>Add Session</span>
-                </button>
+                {isCommandMode === project.id ? (
+                  <div className="add-session-input-container">
+                    <input
+                      className="add-session-input"
+                      value={sessionCommand}
+                      onChange={(e) => setSessionCommand(e.target.value)}
+                      placeholder="Enter command (optional)"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleCreateSession(project.id, sessionCommand.trim() || undefined);
+                        } else if (e.key === 'Escape') {
+                          setIsCommandMode(null);
+                          setSessionCommand('');
+                        }
+                      }}
+                      autoFocus
+                    />
+                    <button 
+                      className="add-session-confirm-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCreateSession(project.id, sessionCommand.trim() || undefined);
+                      }}
+                    >
+                      <span className="add-session-icon">+</span>
+                    </button>
+                  </div>
+                ) : (
+                  <button 
+                    className="add-session-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsCommandMode(project.id);
+                    }}
+                  >
+                    <span className="add-session-icon">+</span>
+                    <span>Add Session</span>
+                  </button>
+                )}
               </div>
             </div>
           ))}

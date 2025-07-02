@@ -419,6 +419,16 @@ html, body {
   50% { box-shadow: 0 0 12px rgba(124, 58, 237, 0.8); }
 }
 
+/* Project icon */
+.project-icon {
+  font-size: 10px;
+  color: var(--text-secondary);
+  line-height: 1;
+  width: 10px;
+  text-align: center;
+  opacity: 0.7;
+}
+
 /* Project actions */
 .project-actions {
   margin-left: auto;
@@ -534,15 +544,15 @@ html, body {
   border: 1px dashed var(--border-medium);
   color: var(--text-muted);
   cursor: pointer;
-  padding: 6px 12px;
+  padding: 8px 12px;
   border-radius: 6px;
   font-size: 13px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   transition: all 0.2s ease;
   width: 100%;
-  max-width: 200px;
+  text-align: left;
 }
 
 .add-session-btn:hover {
@@ -554,6 +564,57 @@ html, body {
 .add-session-icon {
   font-size: 14px;
   font-weight: 600;
+}
+
+.add-session-input-container {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.add-session-input {
+  flex: 1;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-medium);
+  color: var(--text-primary);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.add-session-input:focus {
+  border-color: var(--accent-color);
+}
+
+.add-session-input::placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.add-session-confirm-btn {
+  background: var(--accent-color);
+  border: none;
+  color: white;
+  cursor: pointer;
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease;
+  min-width: 32px;
+}
+
+.add-session-confirm-btn:hover {
+  background-color: #1d4ed8;
+}
+
+.add-session-confirm-btn .add-session-icon {
+  font-size: 12px;
 }
 
 .add-session-menu {
