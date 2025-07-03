@@ -73,6 +73,7 @@ const snowfortAPI: SnowfortAPI = {
     // Return a function to remove the listener
     return () => ipcRenderer.removeListener(channel, listener);
   },
+
 };
 
 contextBridge.exposeInMainWorld('snowfortAPI', snowfortAPI);

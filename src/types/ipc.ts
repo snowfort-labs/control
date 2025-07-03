@@ -50,6 +50,7 @@ export interface SnowfortAPI {
   
   // Session update listener
   onSessionUpdate(callback: (session: Session) => void): () => void;
+
 }
 
 declare global {

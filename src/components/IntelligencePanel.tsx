@@ -49,55 +49,27 @@ export const IntelligencePanel: React.FC<IntelligencePanelProps> = ({ collapsed,
       <div className="panel-content">
         <div className="intelligence-metrics">
           {activeSession ? (
-            <>
-              <div className="metric-group">
-                <h3>🎯 Current Session</h3>
-                <div className="metric-row">
-                  <span className="metric-label">Turns</span>
-                  <span className="metric-value">{activeSession.turnCount}</span>
+            <div className="metric-group">
+              <h3>⚡ Live Insights</h3>
+              {activeSession.status === 'ready' && (
+                <div className="insight-card success">
+                  <div style={{ fontWeight: 500 }}>Ready for input</div>
+                  <div style={{ fontSize: 12, marginTop: 4 }}>Agent is waiting for your command</div>
                 </div>
-                <div className="metric-row">
-                  <span className="metric-label">Status</span>
-                  <span style={{ 
-                    fontSize: 14, 
-                    fontWeight: 500,
-                    color: activeSession.status === 'ready' ? '#10b981' :
-                           activeSession.status === 'working' ? '#f59e0b' :
-                           activeSession.status === 'error' ? '#ef4444' : '#6b7280'
-                  }}>
-                    {activeSession.status.charAt(0).toUpperCase() + activeSession.status.slice(1)}
-                  </span>
+              )}
+              {activeSession.status === 'working' && (
+                <div className="insight-card warning">
+                  <div style={{ fontWeight: 500 }}>Processing task</div>
+                  <div style={{ fontSize: 12, marginTop: 4 }}>Est. completion: 2-3 minutes</div>
                 </div>
-                <div className="metric-row">
-                  <span className="metric-label">Engine</span>
-                  <span style={{ fontSize: 14 }}>
-                    {((activeSession.activeEngine || activeSession.engineType) || 'None').replace('claude-code', 'claude code')}
-                  </span>
+              )}
+              {activeSession.turnCount && activeSession.turnCount > 5 && (
+                <div className="insight-card info">
+                  <div style={{ fontWeight: 500 }}>Long conversation detected</div>
+                  <div style={{ fontSize: 12, marginTop: 4 }}>Consider breaking into smaller tasks</div>
                 </div>
-              </div>
-
-              <div className="metric-group">
-                <h3>⚡ Live Insights</h3>
-                {activeSession.status === 'ready' && (
-                  <div className="insight-card success">
-                    <div style={{ fontWeight: 500 }}>Ready for input</div>
-                    <div style={{ fontSize: 12, marginTop: 4 }}>Agent is waiting for your command</div>
-                  </div>
-                )}
-                {activeSession.status === 'working' && (
-                  <div className="insight-card warning">
-                    <div style={{ fontWeight: 500 }}>Processing task</div>
-                    <div style={{ fontSize: 12, marginTop: 4 }}>Est. completion: 2-3 minutes</div>
-                  </div>
-                )}
-                {activeSession.turnCount && activeSession.turnCount > 5 && (
-                  <div className="insight-card info">
-                    <div style={{ fontWeight: 500 }}>Long conversation detected</div>
-                    <div style={{ fontSize: 12, marginTop: 4 }}>Consider breaking into smaller tasks</div>
-                  </div>
-                )}
-              </div>
-            </>
+              )}
+            </div>
           ) : (
             <div style={{ textAlign: 'center', color: '#6b7280', marginTop: 32 }}>
               <div style={{ fontSize: 32, marginBottom: 8 }}>🧠</div>

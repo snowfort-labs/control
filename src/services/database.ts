@@ -1,23 +1,45 @@
 // SQLite Database Service for Snowfort
 
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore - better-sqlite3 types not fully compatible
 import Database from 'better-sqlite3';
 import { Project, Organization, Session, Task, TaskPlan } from '../types/engine';
+import { 
+  ProjectRow, 
+  SessionRow, 
+  OrganizationRow, 
+  TaskRow, 
+  TaskPlanRow,
+  DatabaseColumn,
+  isProjectRow,
+  isSessionRow,
+  isOrganizationRow,
+  isTaskRow,
+  isTaskPlanRow
+} from '../types/database';
+import { logger } from '../utils/logger';
+import { config } from '../config';
 import path from 'path';
 import { app } from 'electron';
 
 export class DatabaseService {
-  private db: Database.Database;
+  private db: Database;
   private dbPath: string;
+  private isInitialized = false;
 
   constructor() {
     // Store database in user data directory
     const userDataPath = app.getPath('userData');
     this.dbPath = path.join(userDataPath, 'snowfort.db');
     
-    this.db = (Database as any)(this.dbPath);
-    this.initializeSchema();
+    try {
+      logger.database.info('Initializing database', { path: this.dbPath });
+      this.db = new (Database as any)(this.dbPath);
+      this.initializeSchema();
+      this.isInitialized = true;
+      logger.database.info('Database initialized successfully');
+    } catch (error) {
+      logger.database.error('Failed to initialize database', error as Error, { path: this.dbPath });
+      throw error;
+    }
   }
 
   getDatabasePath(): string {
@@ -25,11 +47,14 @@ export class DatabaseService {
   }
 
   private initializeSchema(): void {
-    // Enable foreign keys
-    this.db.pragma('foreign_keys = ON');
+    try {
+      logger.database.debug('Initializing database schema');
+      
+      // Enable foreign keys
+      this.db.pragma('foreign_keys = ON');
 
-    // Create tables
-    this.db.exec(`
+      // Create tables
+      this.db.exec(`
       CREATE TABLE IF NOT EXISTS organizations (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -116,21 +141,29 @@ export class DatabaseService {
       CREATE INDEX IF NOT EXISTS idx_task_plans_project_id ON task_plans(project_id);
     `);
 
-    // Run migrations
-    this.runMigrations();
+      logger.database.debug('Database schema created successfully');
+      
+      // Run migrations
+      this.runMigrations();
+    } catch (error) {
+      logger.database.error('Failed to initialize database schema', error as Error);
+      throw error;
+    }
   }
 
   private runMigrations(): void {
+    logger.database.debug('Starting database migrations');
+    
     // Migration: Rename agent_type to engine_type in sessions table
     try {
       // Check if agent_type column exists
-      const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as any[];
+      const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as unknown as DatabaseColumn[];
       const hasAgentType = columns.some(col => col.name === 'agent_type');
       const hasEngineType = columns.some(col => col.name === 'engine_type');
       const hasActiveEngine = columns.some(col => col.name === 'active_engine');
 
       if (hasAgentType && !hasEngineType) {
-        console.log('Migrating agent_type to engine_type...');
+        logger.database.info('Migrating agent_type to engine_type');
         
         // SQLite doesn't support ALTER COLUMN, so we need to recreate the table
         this.db.exec(`
@@ -165,21 +198,21 @@ export class DatabaseService {
           COMMIT;
         `);
         
-        console.log('Migration completed successfully');
+        logger.database.info('agent_type to engine_type migration completed successfully');
       }
     } catch (error) {
-      console.error('Migration failed:', error);
+      logger.database.error('Migration failed', error as Error);
       // Don't throw - let the app continue with the current schema
     }
 
     // Migration: Make engine_type nullable for generic terminal sessions
     try {
-      const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as any[];
+      const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as unknown as DatabaseColumn[];
       const engineTypeColumn = columns.find(col => col.name === 'engine_type');
       
       // Check if engine_type is currently NOT NULL
       if (engineTypeColumn && engineTypeColumn.notnull === 1) {
-        console.log('Making engine_type nullable for generic terminal sessions...');
+        logger.database.info('Making engine_type nullable for generic terminal sessions');
         
         // SQLite doesn't support ALTER COLUMN, so we need to recreate the table
         this.db.exec(`
@@ -213,97 +246,172 @@ export class DatabaseService {
           COMMIT;
         `);
         
-        console.log('Engine type nullable migration completed successfully');
+        logger.database.info('Engine type nullable migration completed successfully');
       }
     } catch (error) {
-      console.error('Engine type nullable migration failed:', error);
+      logger.database.error('Engine type nullable migration failed', error as Error);
       // Don't throw - let the app continue with the current schema
     }
 
     // Migration: Add active_engine column for engine detection
     try {
-      const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as any[];
+      const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as unknown as DatabaseColumn[];
       const hasActiveEngine = columns.some(col => col.name === 'active_engine');
       
       if (!hasActiveEngine) {
-        console.log('Adding active_engine column for real-time engine detection...');
+        logger.database.info('Adding active_engine column for real-time engine detection');
         this.db.prepare('ALTER TABLE sessions ADD COLUMN active_engine TEXT').run();
-        console.log('Active engine migration completed successfully');
+        logger.database.info('Active engine migration completed successfully');
       }
     } catch (error) {
-      console.error('Active engine migration failed:', error);
+      logger.database.error('Active engine migration failed', error as Error);
       // Don't throw - let the app continue with the current schema
+    }
+    
+    logger.database.debug('Database migrations completed');
+  }
+
+  private ensureInitialized(): void {
+    if (!this.isInitialized) {
+      throw new Error('Database not initialized');
     }
   }
 
   // Organizations
   createOrganization(name: string): Organization {
-    const id = this.generateId();
-    const orderIndex = this.getNextOrderIndex('organizations');
+    this.ensureInitialized();
     
-    const stmt = this.db.prepare(`
-      INSERT INTO organizations (id, name, order_index)
-      VALUES (?, ?, ?)
-    `);
-    
-    stmt.run(id, name, orderIndex);
-    
-    return {
-      id,
-      name,
-      orderIndex,
-      createdAt: new Date().toISOString()
-    };
+    try {
+      const id = this.generateId();
+      const orderIndex = this.getNextOrderIndex('organizations');
+      
+      const stmt = this.db.prepare(`
+        INSERT INTO organizations (id, name, order_index)
+        VALUES (?, ?, ?)
+      `);
+      
+      stmt.run(id, name, orderIndex);
+      
+      const organization = {
+        id,
+        name,
+        orderIndex,
+        createdAt: new Date().toISOString()
+      };
+      
+      logger.database.info('Organization created', { id, name });
+      return organization;
+    } catch (error) {
+      logger.database.error('Failed to create organization', error as Error, { name });
+      throw error;
+    }
   }
 
   getOrganizations(): Organization[] {
-    const stmt = this.db.prepare(`
-      SELECT id, name, order_index as orderIndex, created_at as createdAt
-      FROM organizations
-      ORDER BY order_index ASC
-    `);
+    this.ensureInitialized();
     
-    return stmt.all() as unknown as Organization[];
+    try {
+      const stmt = this.db.prepare(`
+        SELECT id, name, order_index as orderIndex, created_at as createdAt
+        FROM organizations
+        ORDER BY order_index ASC
+      `);
+      
+      const rows = stmt.all();
+      const organizations: Organization[] = [];
+      
+      for (const row of rows) {
+        if (isOrganizationRow(row)) {
+          organizations.push({
+            id: row.id,
+            name: row.name,
+            orderIndex: row.order_index,
+            createdAt: row.created_at
+          });
+        }
+      }
+      
+      logger.database.debug('Retrieved organizations', { count: organizations.length });
+      return organizations;
+    } catch (error) {
+      logger.database.error('Failed to get organizations', error as Error);
+      throw error;
+    }
   }
 
   // Projects
   createProject(name: string, path: string, organizationId?: string): Project {
-    const id = this.generateId();
-    const orderIndex = organizationId 
-      ? this.getNextOrderIndex('projects', 'org_id = ?', organizationId)
-      : this.getNextOrderIndex('projects', 'org_id IS NULL');
+    this.ensureInitialized();
     
-    const stmt = this.db.prepare(`
-      INSERT INTO projects (id, org_id, name, path, order_index)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-    
-    stmt.run(id, organizationId || null, name, path, orderIndex);
-    
-    return {
-      id,
-      name,
-      path,
-      organizationId,
-      createdAt: new Date().toISOString(),
-      lastActive: new Date().toISOString()
-    };
+    try {
+      const id = this.generateId();
+      const orderIndex = organizationId 
+        ? this.getNextOrderIndex('projects', 'org_id = ?', organizationId)
+        : this.getNextOrderIndex('projects', 'org_id IS NULL');
+      
+      const stmt = this.db.prepare(`
+        INSERT INTO projects (id, org_id, name, path, order_index)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      
+      stmt.run(id, organizationId || null, name, path, orderIndex);
+      
+      const project = {
+        id,
+        name,
+        path,
+        organizationId,
+        createdAt: new Date().toISOString(),
+        lastActive: new Date().toISOString()
+      };
+      
+      logger.database.info('Project created', { id, name, path, organizationId });
+      return project;
+    } catch (error) {
+      logger.database.error('Failed to create project', error as Error, { name, path, organizationId });
+      throw error;
+    }
   }
 
   getProjects(): Project[] {
-    const stmt = this.db.prepare(`
-      SELECT 
-        id, 
-        org_id as organizationId, 
-        name, 
-        path, 
-        created_at as createdAt,
-        last_active as lastActive
-      FROM projects
-      ORDER BY order_index ASC
-    `);
+    this.ensureInitialized();
     
-    return stmt.all() as unknown as Project[];
+    try {
+      const stmt = this.db.prepare(`
+        SELECT 
+          id, 
+          org_id as organizationId, 
+          name, 
+          path, 
+          created_at as createdAt,
+          last_active as lastActive
+        FROM projects
+        ORDER BY order_index ASC
+      `);
+      
+      const rows = stmt.all();
+      const projects: Project[] = [];
+      
+      for (const row of rows) {
+        if (isProjectRow(row)) {
+          projects.push({
+            id: row.id,
+            name: row.name,
+            path: row.path,
+            organizationId: (row as any).organizationId || (row as any).org_id || undefined,
+            createdAt: (row as any).createdAt || (row as any).created_at,
+            lastActive: (row as any).lastActive || (row as any).last_active,
+            currentBranch: (row as any).current_branch || undefined
+          });
+        }
+      }
+      
+      logger.database.debug('Retrieved projects', { count: projects.length });
+      return projects;
+    } catch (error) {
+      logger.database.error('Failed to get projects', error as Error);
+      throw error;
+    }
   }
 
   updateProjectLastActive(projectId: string): void {
@@ -381,12 +489,28 @@ export class DatabaseService {
           ORDER BY last_active DESC
         `);
     
-    const sessions = projectId ? stmt.all(projectId) : stmt.all() as any[];
+    const rows = projectId ? stmt.all(projectId) : stmt.all();
+    const sessions: Session[] = [];
     
-    return sessions.map((session: any) => ({
-      ...session,
-      config: JSON.parse(session.config || '{}')
-    }));
+    for (const row of rows) {
+      if (isSessionRow(row)) {
+        sessions.push({
+          id: row.id,
+          projectId: (row as any).projectId || (row as any).project_id,
+          name: row.name,
+          engineType: (row as any).engineType || (row as any).engine_type || undefined,
+          status: row.status as any,
+          config: JSON.parse(row.config || '{}'),
+          orderIndex: (row as any).orderIndex || (row as any).order_index,
+          activeEngine: (row as any).activeEngine || (row as any).active_engine || undefined,
+          createdAt: (row as any).createdAt || (row as any).created_at,
+          lastActive: (row as any).lastActive || (row as any).last_active
+        });
+      }
+    }
+    
+    logger.database.debug('Retrieved sessions', { count: sessions.length });
+    return sessions;
   }
 
   updateSessionStatus(sessionId: string, status: string): void {
@@ -431,14 +555,18 @@ export class DatabaseService {
 
     // Return the updated project
     const getStmt = this.db.prepare('SELECT * FROM projects WHERE id = ?');
-    const result = getStmt.get(projectId) as any;
+    const result = getStmt.get(projectId);
+    
+    if (!isProjectRow(result)) {
+      throw new Error(`Project with id ${projectId} not found or invalid`);
+    }
     
     return {
       id: result.id,
       name: result.name,
       path: result.path,
       currentBranch: result.current_branch,
-      orgId: result.org_id,
+      organizationId: result.org_id || undefined,
       lastActive: result.last_active,
       createdAt: result.created_at
     };
@@ -475,16 +603,20 @@ export class DatabaseService {
 
     // Return the updated session
     const getStmt = this.db.prepare('SELECT * FROM sessions WHERE id = ?');
-    const result = getStmt.get(sessionId) as any;
+    const result = getStmt.get(sessionId);
+    
+    if (!isSessionRow(result)) {
+      throw new Error(`Session with id ${sessionId} not found or invalid`);
+    }
     
     return {
       id: result.id,
       projectId: result.project_id,
       name: result.name,
-      engineType: result.engine_type,
-      status: result.status,
+      engineType: result.engine_type as any,
+      status: result.status as any,
       config: JSON.parse(result.config || '{}'),
-      activeEngine: result.active_engine,
+      activeEngine: result.active_engine as any,
       lastActive: result.last_active,
       createdAt: result.created_at,
       orderIndex: result.order_index
@@ -564,12 +696,33 @@ export class DatabaseService {
       ORDER BY created_at DESC
     `);
     
-    const tasks = stmt.all(projectId) as any[];
+    const rows = stmt.all(projectId);
+    const tasks: Task[] = [];
     
-    return tasks.map((task: any) => ({
-      ...task,
-      affectedFiles: JSON.parse(task.affectedFiles || '[]')
-    }));
+    for (const row of rows) {
+      if (isTaskRow(row)) {
+        tasks.push({
+          id: row.id,
+          projectId: row.project_id,
+          title: row.title,
+          body: row.body,
+          source: row.source as any,
+          sourceId: row.source_id || undefined,
+          sourceUrl: row.source_url || undefined,
+          taskType: row.task_type || undefined,
+          status: row.status as any,
+          estimatedTime: row.estimated_time || undefined,
+          affectedFiles: JSON.parse(row.affected_files || '[]'),
+          conflictRisk: row.conflict_risk || undefined,
+          conflictDetails: row.conflict_details || undefined,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          completedAt: row.completed_at || undefined
+        });
+      }
+    }
+    
+    return tasks;
   }
 
   updateTask(taskId: string, updates: Partial<Task>): Task {
@@ -615,25 +768,29 @@ export class DatabaseService {
 
     // Return the updated task
     const getStmt = this.db.prepare('SELECT * FROM tasks WHERE id = ?');
-    const result = getStmt.get(taskId) as any;
+    const result = getStmt.get(taskId);
+    
+    if (!isTaskRow(result)) {
+      throw new Error(`Task with id ${taskId} not found or invalid`);
+    }
     
     return {
       id: result.id,
       projectId: result.project_id,
       title: result.title,
       body: result.body,
-      source: result.source,
-      sourceId: result.source_id,
-      sourceUrl: result.source_url,
-      taskType: result.task_type,
-      status: result.status,
-      estimatedTime: result.estimated_time,
+      source: result.source as any,
+      sourceId: result.source_id || undefined,
+      sourceUrl: result.source_url || undefined,
+      taskType: result.task_type || undefined,
+      status: result.status as any,
+      estimatedTime: result.estimated_time || undefined,
       affectedFiles: JSON.parse(result.affected_files || '[]'),
-      conflictRisk: result.conflict_risk,
-      conflictDetails: result.conflict_details,
+      conflictRisk: result.conflict_risk || undefined,
+      conflictDetails: result.conflict_details || undefined,
       createdAt: result.created_at,
       updatedAt: result.updated_at,
-      completedAt: result.completed_at
+      completedAt: result.completed_at || undefined
     };
   }
 
@@ -683,13 +840,24 @@ export class DatabaseService {
       ORDER BY updated_at DESC
     `);
     
-    const plans = stmt.all(projectId) as any[];
+    const rows = stmt.all(projectId);
+    const plans: TaskPlan[] = [];
     
-    return plans.map((plan: any) => ({
-      ...plan,
-      taskIds: JSON.parse(plan.taskIds || '[]'),
-      phases: JSON.parse(plan.phases || '[]')
-    }));
+    for (const row of rows) {
+      if (isTaskPlanRow(row)) {
+        plans.push({
+          id: row.id,
+          projectId: row.project_id,
+          name: row.name,
+          taskIds: JSON.parse(row.task_ids || '[]'),
+          phases: JSON.parse(row.phases || '[]'),
+          createdAt: row.created_at,
+          updatedAt: row.updated_at
+        });
+      }
+    }
+    
+    return plans;
   }
 
   updateTaskPlan(planId: string, updates: Partial<TaskPlan>): TaskPlan {
@@ -727,7 +895,11 @@ export class DatabaseService {
 
     // Return the updated plan
     const getStmt = this.db.prepare('SELECT * FROM task_plans WHERE id = ?');
-    const result = getStmt.get(planId) as any;
+    const result = getStmt.get(planId);
+    
+    if (!isTaskPlanRow(result)) {
+      throw new Error(`Task plan with id ${planId} not found or invalid`);
+    }
     
     return {
       id: result.id,
@@ -746,19 +918,33 @@ export class DatabaseService {
   }
 
   private getNextOrderIndex(table: string, whereClause?: string, ...params: any[]): number {
-    let query = `SELECT COALESCE(MAX(order_index), -1) + 1 as nextIndex FROM ${table}`;
-    
-    if (whereClause) {
-      query += ` WHERE ${whereClause}`;
+    try {
+      let query = `SELECT COALESCE(MAX(order_index), -1) + 1 as nextIndex FROM ${table}`;
+      
+      if (whereClause) {
+        query += ` WHERE ${whereClause}`;
+      }
+      
+      const stmt = this.db.prepare(query);
+      const result = stmt.get(...params) as unknown as { nextIndex: number };
+      
+      return result.nextIndex;
+    } catch (error) {
+      logger.database.error('Failed to get next order index', error as Error, { table, whereClause, params });
+      throw error;
     }
-    
-    const stmt = this.db.prepare(query);
-    const result = stmt.get(...params) as unknown as { nextIndex: number };
-    
-    return result.nextIndex;
   }
 
   close(): void {
-    this.db.close();
+    if (this.isInitialized && this.db) {
+      try {
+        this.db.close();
+        this.isInitialized = false;
+        logger.database.info('Database connection closed');
+      } catch (error) {
+        logger.database.error('Failed to close database', error as Error);
+        throw error;
+      }
+    }
   }
 }

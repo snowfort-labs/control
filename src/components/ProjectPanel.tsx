@@ -3,6 +3,7 @@ import { useAppStore } from '../store/appStore';
 import geminiLogo from '../assets/gemini_logo.png';
 import claudeLogo from '../assets/claude-logo.png';
 import openaiLogo from '../assets/openai.png';
+import terminalLogo from '../assets/terminal-logo.png';
 
 interface ProjectPanelProps {
   collapsed: boolean;
@@ -44,16 +45,23 @@ export const ProjectPanel: React.FC<ProjectPanelProps> = ({ collapsed, onToggleC
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'ready': return <div className="status-indicator ready"></div>;
-      case 'working': return <div className="status-indicator working"></div>;
+      case 'busy': return <div className="status-indicator working"></div>;
       case 'error': return <div className="status-indicator error"></div>;
-      default: return <div className="status-indicator idle"></div>;
+      default: return <div className="status-indicator ready"></div>;
     }
   };
 
   const getEngineIcon = (engineType?: string, activeEngine?: string) => {
     // Show the active engine icon if something is running, otherwise show configured engine type
     const engine = activeEngine || engineType;
-    if (!engine) return null; // No icon for generic terminal sessions
+    if (!engine) {
+      // Show terminal icon for generic terminal sessions
+      return (
+        <span className="engine-label terminal" title="Terminal">
+          <img src={terminalLogo} alt="Terminal" style={{ width: '16px', height: '16px' }} />
+        </span>
+      );
+    }
     
     // Use different icons based on whether engine is actively running or just configured
     const isActive = activeEngine !== undefined;
@@ -80,6 +88,34 @@ export const ProjectPanel: React.FC<ProjectPanelProps> = ({ collapsed, onToggleC
           </span>
         );
       default: return null;
+    }
+  };
+
+  const getEngineDisplayName = (engineType?: string, activeEngine?: string) => {
+    const engine = activeEngine || engineType;
+    
+    switch (engine) {
+      case 'claude':
+      case 'claude-code': 
+        return 'Claude Code';
+      case 'codex': 
+        return 'OpenAI Codex';
+      case 'gemini': 
+        return 'Gemini CLI';
+      case null:
+      case undefined:
+      case '':
+        return 'Terminal';
+      default: return engine;
+    }
+  };
+
+  const getStatusDisplayName = (status: string) => {
+    switch (status) {
+      case 'ready': return 'Ready';
+      case 'busy': return 'Busy';
+      case 'error': return 'Error';
+      default: return 'Ready';
     }
   };
 
@@ -282,31 +318,42 @@ export const ProjectPanel: React.FC<ProjectPanelProps> = ({ collapsed, onToggleC
                           }}
                           className={`session-item ${activeSession?.id === session.id ? 'active' : ''}`}
                         >
-                          {getStatusIcon(session.status)}
-                          {getEngineIcon(session.engineType, session.activeEngine)}
-                          {editingSession === session.id ? (
-                            <input
-                              className="editable-name"
-                              value={sessionName}
-                              onChange={(e) => setSessionName(e.target.value)}
-                              onBlur={() => {
-                                handleRenameSession(session.id, sessionName);
-                                setEditingSession(null);
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  handleRenameSession(session.id, sessionName);
-                                  setEditingSession(null);
-                                } else if (e.key === 'Escape') {
-                                  setEditingSession(null);
-                                }
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              autoFocus
-                            />
-                          ) : (
-                            <span>{session.name}</span>
-                          )}
+                          <div className="session-main-info">
+                            <div className="session-header">
+                              {getStatusIcon(session.status)}
+                              {getEngineIcon(session.engineType, session.activeEngine)}
+                              {editingSession === session.id ? (
+                                <input
+                                  className="editable-name"
+                                  value={sessionName}
+                                  onChange={(e) => setSessionName(e.target.value)}
+                                  onBlur={() => {
+                                    handleRenameSession(session.id, sessionName);
+                                    setEditingSession(null);
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      handleRenameSession(session.id, sessionName);
+                                      setEditingSession(null);
+                                    } else if (e.key === 'Escape') {
+                                      setEditingSession(null);
+                                    }
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  autoFocus
+                                />
+                              ) : (
+                                <span className="session-name">{session.name}</span>
+                              )}
+                            </div>
+                            <div className="session-metadata">
+                              <span className="session-engine">Engine: {getEngineDisplayName(session.engineType, session.activeEngine)}</span>
+                              <span className="session-separator"> • </span>
+                              <span className="session-status">Status: {getStatusDisplayName(session.status)}</span>
+                              <span className="session-separator"> • </span>
+                              <span className="session-turns">Turns: {session.turnCount || 0}</span>
+                            </div>
+                          </div>
                         </button>
                         <button 
                           className="dot-menu-trigger session-menu"
@@ -448,31 +495,42 @@ export const ProjectPanel: React.FC<ProjectPanelProps> = ({ collapsed, onToggleC
                     }}
                     className={`session-item ${activeSession?.id === session.id ? 'active' : ''}`}
                   >
-                    {getStatusIcon(session.status)}
-                    {getEngineIcon(session.engineType, session.activeEngine)}
-                    {editingSession === session.id ? (
-                      <input
-                        className="editable-name"
-                        value={sessionName}
-                        onChange={(e) => setSessionName(e.target.value)}
-                        onBlur={() => {
-                          handleRenameSession(session.id, sessionName);
-                          setEditingSession(null);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            handleRenameSession(session.id, sessionName);
-                            setEditingSession(null);
-                          } else if (e.key === 'Escape') {
-                            setEditingSession(null);
-                          }
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        autoFocus
-                      />
-                    ) : (
-                      <span>{session.name}</span>
-                    )}
+                    <div className="session-main-info">
+                      <div className="session-header">
+                        {getStatusIcon(session.status)}
+                        {getEngineIcon(session.engineType, session.activeEngine)}
+                        {editingSession === session.id ? (
+                          <input
+                            className="editable-name"
+                            value={sessionName}
+                            onChange={(e) => setSessionName(e.target.value)}
+                            onBlur={() => {
+                              handleRenameSession(session.id, sessionName);
+                              setEditingSession(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleRenameSession(session.id, sessionName);
+                                setEditingSession(null);
+                              } else if (e.key === 'Escape') {
+                                setEditingSession(null);
+                              }
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            autoFocus
+                          />
+                        ) : (
+                          <span className="session-name">{session.name}</span>
+                        )}
+                      </div>
+                      <div className="session-metadata">
+                        <span className="session-engine">Engine: {getEngineDisplayName(session.engineType, session.activeEngine)}</span>
+                        <span className="session-separator"> • </span>
+                        <span className="session-status">Status: {getStatusDisplayName(session.status)}</span>
+                        <span className="session-separator"> • </span>
+                        <span className="session-turns">Turns: {session.turnCount || 0}</span>
+                      </div>
+                    </div>
                   </button>
                   <button 
                     className="dot-menu-trigger session-menu"
